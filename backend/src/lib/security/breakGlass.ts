@@ -50,7 +50,7 @@ export async function breakGlass(newKek: Buffer = randomBytes(KEY_BYTES)): Promi
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
     });
     if (users.length === 0) break;
-    cursor = users.at(-1).id;
+    cursor = users.at(-1)!.id; // guarded by the length check above
 
     const rewrappable = users.filter((u) => u.wrappedDEK);
     await Promise.all(

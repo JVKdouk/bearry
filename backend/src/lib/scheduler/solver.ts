@@ -578,9 +578,7 @@ export function solve(input: SchedulerInput): ScheduleProposal {
 
     for (let i = 0; i < sizes.length; i++) {
       // Later chunks of the same task must also follow the earlier ones.
-      const floor = placedForTask.length > 0
-        ? placedForTask.at(-1).end
-        : notBefore;
+      const floor = placedForTask.length > 0 ? placedForTask.at(-1)!.end : notBefore;
       const placement = placeSession(task, sizes[i], slots, dayStates, p, floor);
       if (placement.refusal !== null || placement.end.getTime() === 0) {
         failed = true;
@@ -613,12 +611,12 @@ export function solve(input: SchedulerInput): ScheduleProposal {
       blocks.push(...placedForTask);
       const last = placedForTask.at(-1);
       if (last) finishedAt.set(task.id, last.end);
-      if (cyclic.has(task.id)) {
-        // Placed, but its ordering couldn't be honoured. Say so rather than
-        // quietly pretending the dependency was respected.
+      // Placed, but its ordering couldn't be honoured. Say so on the block
+      // rather than quietly implying the dependency was respected.
+      if (cyclic.has(task.id) && last) {
         blocks[blocks.length - 1] = {
-          ...blocks.at(-1),
-          reason: `${blocks.at(-1).reason} (its dependencies form a loop, so the order couldn't be guaranteed)`,
+          ...last,
+          reason: `${last.reason} (its dependencies form a loop, so the order couldn't be guaranteed)`,
         };
       }
     }

@@ -41,7 +41,7 @@ export async function runDigests(range: DigestRange): Promise<RunResult> {
       ...(cursor ? { skip: 1, cursor: { userId_key: { userId: cursor, key } } } : {}),
     });
     if (page.length === 0) break;
-    cursor = page.at(-1).userId;
+    cursor = page.at(-1)!.userId; // guarded by the length check above
     attempted += page.length;
 
     for (let i = 0; i < page.length; i += CONCURRENCY) {
