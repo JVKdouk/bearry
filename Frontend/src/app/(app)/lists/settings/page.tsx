@@ -6,7 +6,7 @@ import { PlusOutlined, SettingOutlined, UndoOutlined } from "@ant-design/icons";
 import { ListDrawer } from "@/components/ListDrawer";
 import { useCollection } from "@/store/hooks";
 import { useSync } from "@/store/sync";
-import { iconFor } from "@/lib/lists";
+import { ListIcon } from "@/components/ListIcon";
 import { TEXT } from "@/lib/theme";
 
 /**
@@ -103,7 +103,6 @@ export default function ListSettingsPage() {
           </Empty>
         ) : (
           shown.map((p) => {
-            const emoji = iconFor(p);
             const c = counts.get(p.id) ?? { open: 0, total: 0 };
             return (
               <div
@@ -116,7 +115,6 @@ export default function ListSettingsPage() {
                 style={{ padding: 14, display: "flex", alignItems: "center", gap: 13 }}
               >
                 <span
-                  aria-hidden
                   style={{
                     width: 34,
                     height: 34,
@@ -124,12 +122,11 @@ export default function ListSettingsPage() {
                     borderRadius: 10,
                     display: "grid",
                     placeItems: "center",
-                    fontSize: emoji ? 18 : 0,
-                    background: emoji ? "transparent" : p.color,
-                    boxShadow: emoji ? "none" : `0 0 0 1px ${p.color}55`,
+                    background: `${p.color}1f`,
+                    boxShadow: `0 0 0 1px ${p.color}55`,
                   }}
                 >
-                  {emoji}
+                  <ListIcon icon={p.icon} color={p.color} size={18} />
                 </span>
 
                 <div style={{ flex: 1, minWidth: 0 }}>

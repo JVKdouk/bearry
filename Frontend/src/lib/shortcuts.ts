@@ -101,6 +101,10 @@ const OVERLAY_SELECTOR = [
   ".ant-dropdown:not(.ant-dropdown-hidden)",
   ".ant-select-dropdown:not(.ant-select-dropdown-hidden)",
   ".ant-picker-dropdown:not(.ant-picker-dropdown-hidden)",
+  // The colour picker needs no entry: its panel is wrapped in .ant-popover,
+  // already matched above. Adding `.ant-color-picker` looked reasonable and was
+  // actively harmful — it is the trigger, not the panel, so Escape would have
+  // been dead for as long as a picker was on screen.
   // Tooltips are deliberately absent: they follow the pointer, don't take
   // focus, and never own Escape — counting them meant a tooltip lingering over
   // the button you just used blocked Escape entirely.

@@ -108,6 +108,19 @@ test("hasOpenOverlay ignores antd's hidden leftovers", () => {
   assert.equal(hasOpenOverlay(doc([])), false);
 });
 
+test("the colour picker is not matched by its own class name", () => {
+  // Its panel is wrapped in .ant-popover, which is already matched. Naming
+  // `.ant-color-picker` as well looked reasonable and was actively harmful:
+  // that class belongs to the trigger, which is on screen the whole time, so
+  // Escape would have been dead for as long as a picker was mounted — the same
+  // shape of mistake as counting tooltips.
+  const doc = {
+    querySelector: (sel: string) =>
+      sel.includes(".ant-color-picker") ? {} : null,
+  };
+  assert.equal(hasOpenOverlay(doc), false);
+});
+
 test("a lingering tooltip does not count as an overlay", () => {
   // Found in a browser: including tooltips meant the one hovering over the
   // button you just clicked blocked Escape for the rest of the session.

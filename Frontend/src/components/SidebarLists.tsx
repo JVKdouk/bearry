@@ -14,22 +14,7 @@ import {
 import dayjs from "dayjs";
 import { useCollection } from "@/store/hooks";
 import { ListDrawer } from "@/components/ListDrawer";
-import { iconFor } from "@/lib/lists";
-
-function Dot({ color }: { color: string }) {
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        width: 9,
-        height: 9,
-        borderRadius: "50%",
-        background: color,
-        flexShrink: 0,
-      }}
-    />
-  );
-}
+import { ListIcon } from "@/components/ListIcon";
 
 function Row({
   active,
@@ -75,7 +60,13 @@ function Row({
         {label}
       </span>
       {count ? (
-        <span style={{ fontSize: 12, color: active ? "#d9b8ff" : "#6f6f80", fontVariantNumeric: "tabular-nums" }}>
+        <span
+          // Both this and the settings gear live at the right edge, and the
+          // gear is positioned over the row — so the number was rendering
+          // underneath it. It yields while the gear is visible.
+          className={onSettings ? "side-row-count" : undefined}
+          style={{ fontSize: 12, color: active ? "#d9b8ff" : "#6f6f80", fontVariantNumeric: "tabular-nums" }}
+        >
           {count}
         </span>
       ) : null}
@@ -242,12 +233,11 @@ export function SidebarLists({ onNavigate }: { onNavigate?: () => void }) {
 
       <div style={{ flex: 1, overflowY: "auto", padding: "0 6px 6px", display: "flex", flexDirection: "column", gap: 2 }}>
         {activeProjects.map((p) => {
-          const emoji = iconFor(p);
           return (
             <Row
               key={p.id}
               active={onLists && selected === p.id}
-              icon={emoji ? <span style={{ fontSize: 13 }}>{emoji}</span> : <Dot color={p.color} />}
+              icon={<ListIcon icon={p.icon} color={p.color} size={15} />}
               label={p.name}
               count={counts.byProject.get(p.id)}
               onClick={() => go(`/lists?list=${p.id}`)}

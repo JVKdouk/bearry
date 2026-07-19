@@ -14,11 +14,13 @@
  */
 
 import { useEffect, useState } from "react";
-import { App as AntdApp, Button, Drawer, Input, Popconfirm } from "antd";
+import { App as AntdApp, Button, ColorPicker, Drawer, Input, Popconfirm } from "antd";
 import { CloseOutlined, DeleteOutlined } from "@ant-design/icons";
 import { useSync } from "@/store/sync";
 import { useCollection } from "@/store/hooks";
-import { cleanName, LIST_ICONS, LIST_PALETTE, nextColor, normalizeIcon } from "@/lib/lists";
+import { cleanName, LIST_PALETTE, nextColor } from "@/lib/lists";
+import { isSingleEmoji, LUCIDE_CHOICES, lucideValue, normalizeIcon, parseIcon } from "@/lib/listIcon";
+import { ListIcon } from "@/components/ListIcon";
 import { SURFACE } from "@/lib/theme";
 import type { Project } from "@/lib/types";
 
@@ -46,6 +48,49 @@ export function ListDrawer({ open, projectId, onClose, isMobile, onCreated }: Pr
   const [name, setName] = useState("");
   const [color, setColor] = useState<string>(LIST_PALETTE[0]);
   const [icon, setIcon] = useState<string | null>(null);
+  /**
+   * What's typed in the emoji field, kept apart from `icon`.
+   *
+   * Mid-paste text is frequently not yet a valid emoji, and writing it into
+   * `icon` on every keystroke would blank the preview while someone is typing.
+   */
+  const [emojiDraft, setEmojiDraft] = useState("");
+  /**
+   * The colour picker is controlled so Escape can close it.
+   *
+   * Left uncontrolled, Escape fell through to the app's global handler and shut
+   * the whole drawer — losing a half-filled list to close a colour panel. Antd
+   * doesn't dismiss this one on Escape itself, and detecting it by class name
+   * proved unreliable, so the component that owns it handles it.
+   */
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  /**
+   * Escape closes the colour panel, not the drawer behind it.
+   *
+   * Bound to the window in the capture phase: the panel portals to the end of
+   * <body>, so a handler inside this component's tree never sees the key when
+   * focus is in the panel, and capture puts this ahead of the app's global
+   * Escape handler. `stopPropagation` is what stops that handler firing too —
+   * without it, one Escape dismissed the panel *and* threw away a half-filled
+   * list.
+   */
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPickerOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [pickerOpen]);
+
+  // Closing the drawer must not leave the picker believing it is open.
+  useEffect(() => {
+    if (!open) setPickerOpen(false);
+  }, [open]);
 
   // Seed whenever the drawer opens or switches list.
   useEffect(() => {
@@ -53,15 +98,19 @@ export function ListDrawer({ open, projectId, onClose, isMobile, onCreated }: Pr
     if (editing) {
       setName(editing.name);
       setColor(editing.color);
-      setIcon(normalizeIcon(editing.icon));
+      const normalized = normalizeIcon(editing.icon);
+      setIcon(normalized);
+      setEmojiDraft(parseIcon(normalized)?.kind === "emoji" ? (normalized ?? "") : "");
       return;
     }
     setName("");
     setColor(nextColor(projects.filter((p) => !p.archived).length));
     setIcon(null);
+    setEmojiDraft("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, projectId]);
 
+  const isCustomColor = !(LIST_PALETTE as readonly string[]).includes(color);
   const trimmed = cleanName(name);
   const canSave = !!trimmed;
 
@@ -124,7 +173,6 @@ export function ListDrawer({ open, projectId, onClose, isMobile, onCreated }: Pr
             field that must be filled, and the only one with no sane default. */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22 }}>
           <span
-            aria-hidden
             style={{
               width: 34,
               height: 34,
@@ -132,12 +180,11 @@ export function ListDrawer({ open, projectId, onClose, isMobile, onCreated }: Pr
               flexShrink: 0,
               display: "grid",
               placeItems: "center",
-              fontSize: icon ? 18 : 0,
-              background: icon ? "transparent" : color,
-              boxShadow: icon ? "none" : `0 0 0 1px ${color}55`,
+              background: `${color}1f`,
+              boxShadow: `0 0 0 1px ${color}55`,
             }}
           >
-            {icon}
+            <ListIcon icon={icon} color={color} size={19} />
           </span>
           <input
             value={name}
@@ -181,6 +228,50 @@ export function ListDrawer({ open, projectId, onClose, isMobile, onCreated }: Pr
               }}
             />
           ))}
+
+          {/* Anything the presets don't cover, at the end where a "more"
+              affordance belongs. The swatch shows the current colour when it's
+              custom, so the row still says which one is selected. */}
+          <ColorPicker
+            value={color}
+            onChangeComplete={(c) => setColor(c.toHexString())}
+            onOpenChange={setPickerOpen}
+            trigger="click"
+            disabledAlpha
+          >
+            <button
+                type="button"
+                title="Custom colour"
+                aria-label="Custom colour"
+                aria-pressed={isCustomColor}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: "50%",
+                  cursor: "pointer",
+                  display: "grid",
+                  placeItems: "center",
+                  // A conic sweep reads as "pick any", where a single swatch
+                  // would read as one more preset.
+                  background: isCustomColor
+                    ? color
+                    : "conic-gradient(#ff7875, #ffa940, #73d13d, #36cfc9, #4096ff, #a855f7, #f759ab, #ff7875)",
+                  border: isCustomColor ? "2px solid #fff" : "2px solid transparent",
+                  boxShadow: isCustomColor ? `0 0 0 2px ${color}` : "none",
+                }}
+              >
+                {!isCustomColor && (
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      background: "#14141c",
+                    }}
+                  />
+                )}
+              </button>
+          </ColorPicker>
         </div>
 
         <div style={sectionLabel}>
@@ -204,34 +295,56 @@ export function ListDrawer({ open, projectId, onClose, isMobile, onCreated }: Pr
             marginBottom: 12,
           }}
         >
-          {LIST_ICONS.map((e) => (
-            <button
-              key={e}
-              type="button"
-              aria-label={`Icon ${e}`}
-              aria-pressed={icon === e}
-              onClick={() => setIcon(icon === e ? null : e)}
-              style={{
-                height: 38,
-                borderRadius: 9,
-                fontSize: 18,
-                cursor: "pointer",
-                background: icon === e ? "rgba(168,85,247,0.18)" : "transparent",
-                border: `1px solid ${icon === e ? "rgba(168,85,247,0.5)" : "#24242f"}`,
-              }}
-            >
-              {e}
-            </button>
-          ))}
+          {LUCIDE_CHOICES.map((name) => {
+            const value = lucideValue(name);
+            const on = icon === value;
+            return (
+              <button
+                key={name}
+                type="button"
+                aria-label={`Icon ${name}`}
+                aria-pressed={on}
+                onClick={() => setIcon(on ? null : value)}
+                style={{
+                  height: 38,
+                  borderRadius: 9,
+                  display: "grid",
+                  placeItems: "center",
+                  cursor: "pointer",
+                  background: on ? "rgba(168,85,247,0.18)" : "transparent",
+                  border: `1px solid ${on ? "rgba(168,85,247,0.5)" : "#24242f"}`,
+                }}
+              >
+                <ListIcon icon={value} color={on ? color : "#9a9aae"} size={17} />
+              </button>
+            );
+          })}
         </div>
-        {/* Anything, not just the grid — the grid is a shortcut, not a limit. */}
+
+        {/* The grid is a shortcut, not a limit — but exactly one emoji, since
+            two render at half size in a 16px slot and a letter renders as a
+            letter. Says so when it refuses, rather than silently ignoring. */}
         <Input
           size="small"
-          placeholder="…or paste any emoji"
-          value={icon ?? ""}
-          onChange={(e) => setIcon(e.target.value || null)}
-          style={{ maxWidth: 200 }}
+          placeholder="…or paste one emoji"
+          value={emojiDraft}
+          status={emojiDraft && !isSingleEmoji(emojiDraft) ? "error" : undefined}
+          onChange={(e) => {
+            const v = e.target.value;
+            setEmojiDraft(v);
+            if (!v) {
+              if (parseIcon(icon)?.kind === "emoji") setIcon(null);
+            } else if (isSingleEmoji(v)) {
+              setIcon(v.trim());
+            }
+          }}
+          style={{ maxWidth: 220 }}
         />
+        {emojiDraft && !isSingleEmoji(emojiDraft) && (
+          <div style={{ fontSize: 11, color: "#ff7875", marginTop: 6 }}>
+            That needs to be a single emoji.
+          </div>
+        )}
       </div>
 
       <div

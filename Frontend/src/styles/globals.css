@@ -583,3 +583,14 @@ a {
     opacity: 0.65;
   }
 }
+
+/* The count and the settings gear occupy the same corner of a sidebar row.
+   The gear is positioned over the row, so without this the number showed
+   through underneath it. */
+.side-row-wrap:hover .side-row-count,
+.side-row-wrap:focus-within .side-row-count {
+  opacity: 0;
+}
+.side-row-count {
+  transition: opacity 0.12s;
+}
