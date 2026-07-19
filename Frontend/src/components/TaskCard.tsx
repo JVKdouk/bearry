@@ -100,7 +100,10 @@ export function TaskCard({
               fontWeight: 700,
               lineHeight: 1.3,
               color: titleColor,
-              textDecoration: done ? "line-through" : "none",
+              // Struck through only for a task you completed. A past meeting
+              // read as *cancelled* rather than *happened* — it dims and says
+              // "Happened" instead, which is what actually occurred.
+              textDecoration: done && !isEvent ? "line-through" : "none",
               wordBreak: "break-word",
             }}
           >

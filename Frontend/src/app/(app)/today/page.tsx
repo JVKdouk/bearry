@@ -10,20 +10,9 @@ import { useCollection } from "@/store/hooks";
 import { useUI } from "@/store/ui";
 import { useAuth } from "@/store/auth";
 import { TEXT, WARM } from "@/lib/theme";
+import { currentOrNextIndex, hasEnded, partitionDay, whenOf } from "@/lib/today";
+import { useNow } from "@/lib/useNow";
 import type { Block } from "@/lib/types";
-
-/**
- * The day a block belongs on.
- *
- * A task the planner scheduled has no `startTime` of its own — the accepted
- * block is a separate row pointing back at it. Reading only the task made every
- * planned item fall into "Anytime", so work explicitly scheduled for Monday
- * showed up as unscheduled. `plannedAt` supplies that missing day.
- */
-function dayKey(t: Block, plannedAt?: Map<string, string>): string | null {
-  const when = t.startTime ?? plannedAt?.get(t.id) ?? t.deadline;
-  return when ? dayjs(when).format("YYYY-MM-DD") : null;
-}
 
 function Section({
   label,
@@ -89,47 +78,48 @@ export default function TodayPage() {
     [blocks],
   );
 
+  const now = useNow();
+
+  const byWhen = (a: Block, b: Block) =>
+    (whenOf(a, plannedAt) ?? "").localeCompare(whenOf(b, plannedAt) ?? "");
+
+  const selectedKey = selected.format("YYYY-MM-DD");
+  const todayKey = dayjs(now).format("YYYY-MM-DD");
+  const isToday = selectedKey === todayKey;
+
+  const { overdue, forDay, anytime } = useMemo(() => {
+    const parts = partitionDay(
+      open,
+      selectedKey,
+      now,
+      plannedAt,
+      todayKey,
+      (iso) => dayjs(iso).format("YYYY-MM-DD"),
+    );
+    parts.overdue.sort(byWhen);
+    parts.forDay.sort(byWhen);
+    return parts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, selectedKey, todayKey, plannedAt, now]);
+
+  // The strip's dots mean "there is something on this day", so they count the
+  // same things the day itself would show.
   const counts = useMemo(() => {
     const m = new Map<string, number>();
     for (const t of open) {
-      const k = dayKey(t, plannedAt);
-      if (k) m.set(k, (m.get(k) ?? 0) + 1);
+      const when = whenOf(t, plannedAt);
+      if (!when) continue;
+      const k = dayjs(when).format("YYYY-MM-DD");
+      if (k === todayKey && hasEnded(t, now)) continue;
+      m.set(k, (m.get(k) ?? 0) + 1);
     }
     return m;
-  }, [open, plannedAt]);
+  }, [open, plannedAt, todayKey, now]);
 
-  const byWhen = (a: Block, b: Block) =>
-    (a.startTime ?? plannedAt.get(a.id) ?? a.deadline ?? "").localeCompare(
-      b.startTime ?? plannedAt.get(b.id) ?? b.deadline ?? "",
-    );
-
-  const selectedKey = selected.format("YYYY-MM-DD");
-  const isToday = selected.isSame(dayjs(), "day");
-
-  const forDay = useMemo(
-    () => open.filter((t) => dayKey(t, plannedAt) === selectedKey).sort(byWhen),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [open, selectedKey, plannedAt],
-  );
-
-  const overdue = useMemo(
-    () =>
-      isToday
-        ? open
-            .filter((t) => {
-              const w = t.startTime ?? plannedAt.get(t.id) ?? t.deadline;
-              return w && dayjs(w).isBefore(dayjs().startOf("day"));
-            })
-            .sort(byWhen)
-        : [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [open, isToday, plannedAt],
-  );
-
-  const anytime = useMemo(
-    () => open.filter((t) => !dayKey(t, plannedAt)),
-    [open, plannedAt],
-  );
+  // Lead with whatever is happening now, else what's next. Featuring index 0
+  // meant that after a morning of meetings the screen opened on something that
+  // had finished hours ago.
+  const leadIndex = useMemo(() => currentOrNextIndex(forDay, now), [forDay, now]);
 
   const heroCount = forDay.length;
   const greeting = user?.first_name ? `Hello, ${user.first_name} 👋` : "Hello 👋";
@@ -187,7 +177,7 @@ export default function TodayPage() {
             </Button>
           </Empty>
         ) : (
-          forDay.map((t, i) => <TaskCard key={t.id} todo={t} featured={i === 0} />)
+          forDay.map((t, i) => <TaskCard key={t.id} todo={t} featured={i === leadIndex} />)
         )}
       </Section>
 
