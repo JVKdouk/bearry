@@ -90,7 +90,7 @@ export function SidebarLists({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const projects = useCollection("project");
-  const todos = useCollection("todo");
+  const blocks = useCollection("block");
   const create = useSync((s) => s.create);
 
   const [adding, setAdding] = useState(false);
@@ -101,9 +101,11 @@ export function SidebarLists({ onNavigate }: { onNavigate?: () => void }) {
     [projects],
   );
 
+  // Counts are about work, so they count tasks. An event isn't something you
+  // can be behind on, and a note isn't something you do.
   const openTodos = useMemo(
-    () => todos.filter((t) => t.status !== "done" && !t.letGoAt),
-    [todos],
+    () => blocks.filter((t) => t.kind === "task" && t.status !== "done" && !t.letGoAt),
+    [blocks],
   );
 
   const counts = useMemo(() => {

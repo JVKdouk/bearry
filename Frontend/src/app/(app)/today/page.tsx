@@ -10,18 +10,17 @@ import { useCollection } from "@/store/hooks";
 import { useUI } from "@/store/ui";
 import { useAuth } from "@/store/auth";
 import { TEXT, WARM } from "@/lib/theme";
-import type { Todo } from "@/lib/types";
+import type { Block } from "@/lib/types";
 
 /**
- * The day a task belongs on.
+ * The day a block belongs on.
  *
  * A task the planner scheduled has no `startTime` of its own — the accepted
- * block lives on a separate calendar row pointing back at it. Reading only the
- * task made every planned item fall into "Anytime", so work you had explicitly
- * scheduled for Monday showed up as unscheduled. `plannedAt` supplies that
- * missing day.
+ * block is a separate row pointing back at it. Reading only the task made every
+ * planned item fall into "Anytime", so work explicitly scheduled for Monday
+ * showed up as unscheduled. `plannedAt` supplies that missing day.
  */
-function dayKey(t: Todo, plannedAt?: Map<string, string>): string | null {
+function dayKey(t: Block, plannedAt?: Map<string, string>): string | null {
   const when = t.startTime ?? plannedAt?.get(t.id) ?? t.deadline;
   return when ? dayjs(when).format("YYYY-MM-DD") : null;
 }
@@ -53,27 +52,42 @@ function Section({
 }
 
 export default function TodayPage() {
-  const todos = useCollection("todo");
-  const events = useCollection("calendarEvent");
+  const blocks = useCollection("block");
   const openCreateTask = useUI((s) => s.openCreateTask);
   const { user } = useAuth();
   const [selected, setSelected] = useState<Dayjs>(dayjs().startOf("day"));
 
-  const open = useMemo(
-    () => todos.filter((t) => t.status !== "done" && !t.letGoAt),
-    [todos],
-  );
-
   // taskId -> the start of its earliest accepted plan block.
   const plannedAt = useMemo(() => {
     const m = new Map<string, string>();
-    for (const e of events) {
-      if (e.source !== "bearai" || !e.bearaiTaskId || e.deletedAt) continue;
-      const prev = m.get(e.bearaiTaskId);
-      if (!prev || e.start < prev) m.set(e.bearaiTaskId, e.start);
+    for (const b of blocks) {
+      if (!b.planForId || b.deletedAt || !b.startTime) continue;
+      const prev = m.get(b.planForId);
+      if (!prev || b.startTime < prev) m.set(b.planForId, b.startTime);
     }
     return m;
-  }, [events]);
+  }, [blocks]);
+
+  /**
+   * Tasks and events together, which is the whole point of the day view: what
+   * you have to do and what is going to happen to you are the same question
+   * when you're deciding whether today is survivable.
+   *
+   * Notes are excluded — they aren't on any day. Planner blocks are excluded
+   * too: each one exists to give a task a time, and the task itself is already
+   * in this list, so showing both would double every scheduled piece of work.
+   */
+  const open = useMemo(
+    () =>
+      blocks.filter(
+        (b) =>
+          b.kind !== "note" &&
+          !b.planForId &&
+          b.status !== "done" &&
+          !b.letGoAt,
+      ),
+    [blocks],
+  );
 
   const counts = useMemo(() => {
     const m = new Map<string, number>();
@@ -84,7 +98,7 @@ export default function TodayPage() {
     return m;
   }, [open, plannedAt]);
 
-  const byWhen = (a: Todo, b: Todo) =>
+  const byWhen = (a: Block, b: Block) =>
     (a.startTime ?? plannedAt.get(a.id) ?? a.deadline ?? "").localeCompare(
       b.startTime ?? plannedAt.get(b.id) ?? b.deadline ?? "",
     );
@@ -119,9 +133,12 @@ export default function TodayPage() {
 
   const heroCount = forDay.length;
   const greeting = user?.first_name ? `Hello, ${user.first_name} 👋` : "Hello 👋";
+  // "Tasks" would now be a lie — half of these are events, which are not tasks
+  // and cannot be completed. "Things" is vaguer and true.
+  const heroNoun = `Thing${heroCount === 1 ? "" : "s"}`;
   const heroTitle = isToday
-    ? `${heroCount} Task${heroCount === 1 ? "" : "s"} Today`
-    : `${heroCount} Task${heroCount === 1 ? "" : "s"} · ${selected.format("MMM D")}`;
+    ? `${heroCount} ${heroNoun} Today`
+    : `${heroCount} ${heroNoun} · ${selected.format("MMM D")}`;
 
   return (
     <div>

@@ -31,11 +31,34 @@ export interface Project extends SyncBase {
   archived: boolean;
 }
 
-export interface Todo extends SyncBase {
+/**
+ * What a block is. Two independent properties, not three categories:
+ * whether you act on it, and whether it occupies time.
+ *
+ *   task  — actionable, scheduled or not
+ *   event — occupies time, nothing to do about it, completes by happening
+ *   note  — neither
+ */
+export type BlockKind = "task" | "event" | "note";
+
+/** Where a block came from. `local` is anything made here. */
+export type BlockSource = "local" | "google" | "ticktick";
+
+/**
+ * The one content type. Was `Todo`, `Note` and `CalendarEventEntity`, which
+ * between them had three names for the body (`notes`, `bodyMarkdown`,
+ * `description`) and two for the time (`startTime`/`endTime` vs `start`/`end`)
+ * — so every component had to know which of the three it was holding before it
+ * could read the text or the times.
+ */
+export interface Block extends SyncBase {
+  kind: BlockKind;
   projectId?: string | null;
-  parentTodoId?: string | null;
+  parentId?: string | null;
   title: string;
-  notes?: string | null;
+  /** Markdown. A task's notes, an event's description, a note's whole body. */
+  body?: string | null;
+  location?: string | null;
   status: TodoStatus;
   priority: Priority;
   deadline?: string | null;
@@ -53,45 +76,29 @@ export interface Todo extends SyncBase {
   preferredWindows?: string | null;
   letGoAt?: string | null;
   order: number;
-}
 
-export interface Note extends SyncBase {
-  title: string;
-  bodyMarkdown: string;
+  source: BlockSource;
+  externalId?: string | null;
+  /**
+   * Comma-separated field names the user has edited by hand on an IMPORTED
+   * block. The importer stops overwriting exactly these, so an edit sticks
+   * while everything untouched still follows the source.
+   */
+  pinnedFields?: string | null;
+
+  /** Immovable: the planner will not schedule over it. */
+  isFixed: boolean;
+  /** Set on planner-placed blocks — the task this block is doing time for. */
+  planForId?: string | null;
+  scheduleReason?: string | null;
 }
 
 export interface TaskStep extends SyncBase {
-  todoId: string;
+  blockId: string;
   text: string;
   order: number;
   isFirstStep: boolean;
   done: boolean;
-}
-
-export interface CalendarEventEntity extends SyncBase {
-  source: "google" | "bearai";
-  externalId?: string | null;
-  /** Set on blocks the planner created — links the block back to its task. */
-  bearaiTaskId?: string | null;
-  scheduleReason?: string | null;
-  title: string;
-  description?: string | null;
-  location?: string | null;
-  start: string;
-  end: string;
-  isFixed: boolean;
-  /**
-   * Set on imported recurring events. Not client-writable — the sync whitelist
-   * excludes it deliberately, since an imported series is owned by its source
-   * calendar and a local edit would be overwritten on the next sync.
-   */
-  recurrenceRule?: string | null;
-  /**
-   * Comma-separated field names the user has edited by hand on an IMPORTED
-   * event. The importer stops overwriting exactly these, so an edit sticks
-   * while everything untouched still follows the source calendar.
-   */
-  pinnedFields?: string | null;
 }
 
 export interface TimeBlock extends SyncBase {
@@ -120,15 +127,15 @@ export interface BlockRegion extends SyncBase {
 
 /** A relationship between two records (§8.7). `blocks` drives dependencies. */
 export interface Link extends SyncBase {
-  fromType: "todo" | "note" | "event" | "capture";
+  fromType: "block" | "capture";
   fromId: string;
-  toType: "todo" | "note" | "event" | "capture";
+  toType: "block" | "capture";
   toId: string;
   linkType: "reference" | "derived_from" | "blocks";
 }
 
 /**
- * A scheduled notification for a task or event.
+ * A scheduled notification for a block.
  *
  * `fireAt` is cleartext so the server's delivery sweep can query it without
  * decrypting every user's data; `triggerSpec` carries the encrypted record of
@@ -137,7 +144,7 @@ export interface Link extends SyncBase {
  * notification it ever received.
  */
 export interface Reminder extends SyncBase {
-  targetType: "todo" | "event";
+  targetType: "block";
   targetId: string;
   kind: "time" | "location" | "resurface";
   triggerSpec: string;
@@ -155,10 +162,8 @@ export interface Setting extends SyncBase {
 // Map of entity name -> record type. Mirrors backend SYNCABLES.
 export interface SyncEntities {
   project: Project;
-  todo: Todo;
-  note: Note;
+  block: Block;
   taskStep: TaskStep;
-  calendarEvent: CalendarEventEntity;
   timeBlock: TimeBlock;
   energyWindow: EnergyWindow;
   blockRegion: BlockRegion;

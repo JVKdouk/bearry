@@ -19,6 +19,7 @@ import {
   LogoutOutlined,
   MenuOutlined,
   PlusOutlined,
+  ScheduleOutlined,
   SettingOutlined,
   SunOutlined,
   ThunderboltOutlined,
@@ -43,6 +44,7 @@ const PRIMARY = [
   { key: "/today", icon: <SunOutlined />, label: "Today" },
   { key: "/lists", icon: <UnorderedListOutlined />, label: "Lists" },
   { key: "/calendar", icon: <CalendarOutlined />, label: "Calendar" },
+  { key: "/events", icon: <ScheduleOutlined />, label: "Events" },
   { key: "/plan", icon: <ThunderboltOutlined />, label: "Plan" },
   { key: "/inbox", icon: <InboxOutlined />, label: "Inbox" },
 ];
@@ -480,7 +482,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <span style={{ color: ACCENT }}>◗</span> Bearry
             </div>
             <div style={{ padding: "0 6px 6px", display: "flex", flexDirection: "column", gap: 2 }}>
-              {PRIMARY.filter((n) => n.key === "/calendar" || n.key === "/plan" || n.key === "/inbox").map(
+              {PRIMARY.filter((n) => n.key === "/calendar" || n.key === "/events" || n.key === "/plan" || n.key === "/inbox").map(
                 (n) => (
                   <button
                     key={n.key}

@@ -37,7 +37,6 @@ import { expandRange } from "@/lib/recurrence";
 import { CalendarPeek } from "@/components/CalendarPeek";
 import { MonthGrid } from "@/components/MonthGrid";
 import { DayColumnHeader, DAY_HEADER_H } from "@/components/DayColumnHeader";
-import { EventDetail } from "@/components/EventDetail";
 import type { CalendarBlock as Block, CalendarView as View } from "@/lib/calendarTypes";
 import {
   pinchDistance,
@@ -47,7 +46,7 @@ import {
   trackOffset,
 } from "@/lib/swipe";
 import { untimedDayKey } from "@/lib/untimed";
-import type { Diagnosis, FindingAction, ScheduledBlock, ScheduleProposal, Todo } from "@/lib/types";
+import type { Diagnosis, FindingAction, ScheduledBlock, ScheduleProposal, Block as BlockRow } from "@/lib/types";
 
 dayjs.extend(isoWeek);
 
@@ -156,8 +155,15 @@ const ACTION_LABEL: Record<FindingAction, string> = {
 function CalendarInner() {
   const { message } = AntdApp.useApp();
   const params = useSearchParams();
-  const events = useCollection("calendarEvent");
-  const todos = useCollection("todo");
+  const allBlocks = useCollection("block");
+  // Anything that occupies time is drawable; a note never is. Splitting on
+  // `kind` here rather than on which table it came from is the whole point of
+  // the unification — a timed task and a meeting are drawn the same way.
+  const drawable = useMemo(
+    () => allBlocks.filter((b) => b.kind !== "note" && b.startTime && b.endTime),
+    [allBlocks],
+  );
+  const todos = useMemo(() => allBlocks.filter((b) => b.kind === "task"), [allBlocks]);
   const regions = useCollection("blockRegion");
   const openEditTask = useUI((s) => s.openEditTask);
   const openCreateTask = useUI((s) => s.openCreateTask);
@@ -286,48 +292,37 @@ function CalendarInner() {
     // Recurring rows are stored once and drawn many times. Expansion happens
     // client-side because the app has to work offline; the engine is a mirror
     // of the server's so both agree on the dates.
-    const eventOccurrences = expandRange(events, from, to, (e) => ({
-      start: new Date(e.start),
-      end: new Date(e.end),
-    }));
-
-    const out: Block[] = eventOccurrences.map((o) => ({
-      id: o.key,
-      masterId: o.masterId,
-      kind: "event",
-      title: o.item.title || "Event",
-      start: dayjs(o.start),
-      end: dayjs(o.end),
-      color: o.item.source === "google" ? "#4096ff" : WARM,
-      isRepeat: o.isRepeat,
-      bearaiTaskId: o.item.bearaiTaskId ?? null,
-      source: o.item.source,
-    }));
-
-    // A repeating task shows its future occurrences too, but only the stored
-    // one is completable — the rest are a preview of what completing it will
-    // roll into, which is why `isRepeat` renders them muted.
-    const schedulable = todos.filter(
-      (t) => t.startTime && t.endTime && t.status !== "done" && !t.letGoAt,
+    //
+    // One pass over one collection. This used to be two — events and timed
+    // todos — expanded separately and concatenated, with two sets of colour
+    // rules and two ideas of what "already done" meant.
+    const visible = drawable.filter(
+      (b) => b.kind === "event" || (b.status !== "done" && !b.letGoAt),
     );
-    for (const o of expandRange(schedulable, from, to, (t) => ({
-      start: new Date(t.startTime!),
-      end: new Date(t.endTime!),
-    }))) {
-      out.push({
+
+    return expandRange(visible, from, to, (b) => ({
+      start: new Date(b.startTime!),
+      end: new Date(b.endTime!),
+    })).map((o) => {
+      const item = o.item;
+      // A planner block is doing time for a task, so it reads as task-coloured
+      // and opens that task — it isn't a commitment in its own right.
+      const isPlan = !!item.planForId;
+      const isTask = item.kind === "task" || isPlan;
+      return {
         id: o.key,
         masterId: o.masterId,
-        kind: "todo",
-        title: o.item.title || "Task",
+        kind: isTask ? ("todo" as const) : ("event" as const),
+        title: item.title || (isTask ? "Task" : "Event"),
         start: dayjs(o.start),
         end: dayjs(o.end),
-        color: ACCENT,
+        color: isTask ? ACCENT : item.source === "google" ? "#4096ff" : WARM,
         isRepeat: o.isRepeat,
-      });
-    }
-
-    return out;
-  }, [events, todos, expandWindow]);
+        bearaiTaskId: item.planForId ?? null,
+        source: item.source,
+      };
+    });
+  }, [drawable, expandWindow]);
 
   const hours = Array.from({ length: DAY_END - DAY_START + 1 }, (_, i) => DAY_START + i);
   const gridHeight = hours.length * HOUR_PX;
@@ -356,7 +351,6 @@ function CalendarInner() {
    * scrolls vertically — stealing a slightly-diagonal scroll makes the
    * calendar feel like it's fighting you.
    */
-  const [openEventId, setOpenEventId] = useState<string | null>(null);
   const [swipeDx, setSwipeDx] = useState(0);
   const [settling, setSettling] = useState(false);
   const swipeRef = useRef<{
@@ -460,11 +454,11 @@ function CalendarInner() {
    */
   const plannedTaskIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const e of events) {
-      if (e.bearaiTaskId && !e.deletedAt) ids.add(e.bearaiTaskId);
+    for (const b of allBlocks) {
+      if (b.planForId && !b.deletedAt) ids.add(b.planForId);
     }
     return ids;
-  }, [events]);
+  }, [allBlocks]);
 
   /**
    * What each day is hiding.
@@ -475,7 +469,7 @@ function CalendarInner() {
    * range rather than per column, since it's a scan over every task.
    */
   const untimedByDay = useMemo(() => {
-    const m = new Map<string, Todo[]>();
+    const m = new Map<string, BlockRow[]>();
     for (const t of todos) {
       if (plannedTaskIds.has(t.id)) continue;
       const key = untimedDayKey(t);
@@ -496,9 +490,10 @@ function CalendarInner() {
    * being broken rather than the item being uneditable.
    */
   function openBlock(b: Block) {
-    if (b.kind === "todo") return openEditTask(b.masterId);
-    if (b.bearaiTaskId) return openEditTask(b.bearaiTaskId);
-    setOpenEventId(b.masterId);
+    // A planner block is doing time for a task; opening it should open the
+    // task, not a sheet describing the placement. Everything else opens as
+    // itself — and there's one drawer now, so "itself" is all it takes.
+    openEditTask(b.bearaiTaskId ?? b.masterId);
   }
 
   const ghostsForDay = (day: Dayjs) =>
@@ -708,7 +703,7 @@ function CalendarInner() {
       try {
         const { results } = await api.aiEnrich({ limit: 25 });
         for (const r of results) {
-          update("todo", r.todoId, {
+          update("block", r.todoId, {
             estimatedDuration: r.estimatedDuration,
             energyDemand: r.energyDemand,
             category: r.category,
@@ -1610,13 +1605,6 @@ function CalendarInner() {
         </div>
       </div>
       )}
-
-      <EventDetail
-        eventId={openEventId}
-        onClose={() => setOpenEventId(null)}
-        isMobile={isNarrow}
-        overlay
-      />
 
       {/* floating planning bar */}
       {proposal && (

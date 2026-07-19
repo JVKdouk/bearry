@@ -95,10 +95,10 @@ test("edits made offline are queued, not lost", async () => {
   await useSync.getState().bootstrap("user-a");
 
   goOffline();
-  const id = useSync.getState().create("todo", { title: "written on a train" });
+  const id = useSync.getState().create("block", { title: "written on a train" });
 
   // Visible locally straight away — the UI must not wait on the network.
-  assert.equal(useSync.getState().collections.todo[id].title, "written on a train");
+  assert.equal(useSync.getState().collections.block[id].title, "written on a train");
   assert.equal(useSync.getState().pendingCount, 1);
   assert.equal(useSync.getState().status, "queued");
 });
@@ -109,14 +109,14 @@ test("the queue survives a reload while still offline", async () => {
   await useSync.getState().bootstrap("user-a");
 
   goOffline();
-  useSync.getState().create("todo", { title: "survives reload" });
+  useSync.getState().create("block", { title: "survives reload" });
   await settle();
 
   // Simulate a fresh tab: wipe memory, restore from disk.
-  useSync.setState({ collections: { ...useSync.getState().collections, todo: {} } });
+  useSync.setState({ collections: { ...useSync.getState().collections, block: {} } });
   await useSync.getState().bootstrap("user-a");
 
-  const titles = Object.values(useSync.getState().collections.todo).map((t) => t.title);
+  const titles = Object.values(useSync.getState().collections.block).map((t) => t.title);
   assert.ok(titles.includes("survives reload"), `restored: ${JSON.stringify(titles)}`);
   assert.ok(useSync.getState().pendingCount >= 1, "outbox should be restored");
 });
@@ -127,7 +127,7 @@ test("reconnecting flushes the whole queue as ONE bulk request", async () => {
   await useSync.getState().bootstrap("user-a");
 
   goOffline();
-  for (let i = 0; i < 12; i++) useSync.getState().create("todo", { title: `offline ${i}` });
+  for (let i = 0; i < 12; i++) useSync.getState().create("block", { title: `offline ${i}` });
   await settle();
   assert.equal(useSync.getState().pendingCount, 12);
 
@@ -152,7 +152,7 @@ test("a backlog larger than one request still drains completely", async () => {
 
   goOffline();
   const TOTAL = 950;
-  for (let i = 0; i < TOTAL; i++) useSync.getState().create("todo", { title: `bulk ${i}` });
+  for (let i = 0; i < TOTAL; i++) useSync.getState().create("block", { title: `bulk ${i}` });
   await settle();
   assert.equal(useSync.getState().pendingCount, TOTAL);
 
@@ -181,7 +181,7 @@ test("a small queue still goes up as exactly one request", async () => {
   await useSync.getState().bootstrap("user-a");
 
   goOffline();
-  for (let i = 0; i < 30; i++) useSync.getState().create("todo", { title: `small ${i}` });
+  for (let i = 0; i < 30; i++) useSync.getState().create("block", { title: `small ${i}` });
   await settle();
 
   goOnline();
@@ -200,7 +200,7 @@ test("no push is attempted while offline", async () => {
 
   goOffline();
   calls = [];
-  useSync.getState().create("todo", { title: "quiet" });
+  useSync.getState().create("block", { title: "quiet" });
   await settle(1200); // long enough for any stray debounce to have fired
 
   assert.equal(
@@ -214,18 +214,18 @@ test("cached workspace loads without any network call", async () => {
   goOnline();
   useSync.getState().reset();
   await useSync.getState().bootstrap("user-a");
-  useSync.getState().create("todo", { title: "cached item" });
+  useSync.getState().create("block", { title: "cached item" });
   await settle();
   await useSync.getState().flush();
   await settle();
 
   // Cold start with no connectivity at all.
   goOffline();
-  useSync.setState({ collections: { ...useSync.getState().collections, todo: {} } });
+  useSync.setState({ collections: { ...useSync.getState().collections, block: {} } });
   calls = [];
   await useSync.getState().bootstrap("user-a");
 
-  const titles = Object.values(useSync.getState().collections.todo).map((t) => t.title);
+  const titles = Object.values(useSync.getState().collections.block).map((t) => t.title);
   assert.ok(titles.includes("cached item"), "workspace should come from disk");
   assert.equal(calls.length, 0, "cache-first boot must not require the network");
 });
@@ -234,7 +234,7 @@ test("logout clears the cached workspace from disk", async () => {
   goOnline();
   useSync.getState().reset();
   await useSync.getState().bootstrap("user-b");
-  useSync.getState().create("todo", { title: "private note" });
+  useSync.getState().create("block", { title: "private note" });
   await settle();
 
   assert.notEqual(await idbGet(KEYS.collections("user-b")), null);
@@ -252,12 +252,12 @@ test("a different user does not inherit the cached workspace", async () => {
   goOnline();
   useSync.getState().reset();
   await useSync.getState().bootstrap("user-a");
-  useSync.getState().create("todo", { title: "user A secret" });
+  useSync.getState().create("block", { title: "user A secret" });
   await settle();
 
   // Second account signs in on the same device.
   await useSync.getState().bootstrap("user-c");
-  const titles = Object.values(useSync.getState().collections.todo).map((t) => t.title);
+  const titles = Object.values(useSync.getState().collections.block).map((t) => t.title);
   assert.ok(!titles.includes("user A secret"), `leaked: ${JSON.stringify(titles)}`);
 });
 

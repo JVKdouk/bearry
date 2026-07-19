@@ -17,7 +17,7 @@ import { useCollection } from "@/store/hooks";
 import { useSync } from "@/store/sync";
 import { useUI, type ListView } from "@/store/ui";
 import { PRIORITY_COLOR, PRIORITY_LABEL } from "@/lib/format";
-import type { Todo, TodoStatus } from "@/lib/types";
+import type { Block, TodoStatus } from "@/lib/types";
 
 const VIEW_OPTS = [
   { value: "list", icon: <BarsOutlined />, label: "List" },
@@ -31,7 +31,7 @@ const COLUMNS: { key: TodoStatus; label: string }[] = [
   { key: "done", label: "Done" },
 ];
 
-function priorityRank(p: Todo["priority"]) {
+function priorityRank(p: Block["priority"]) {
   return ({ ASAP: 0, high: 1, medium: 2, low: 3 } as const)[p];
 }
 
@@ -40,7 +40,14 @@ function ListsInner() {
   const listKey = params.get("list") ?? "all";
 
   const projects = useCollection("project");
-  const todos = useCollection("todo");
+  // Lists are about work. Events belong on the calendar and the Events tab;
+  // notes aren't actionable at all, and a board column of them would be a
+  // to-do list you can never finish.
+  const allBlocks = useCollection("block");
+  const todos = useMemo(
+    () => allBlocks.filter((b) => b.kind === "task" && !b.planForId),
+    [allBlocks],
+  );
   const openCreateTask = useUI((s) => s.openCreateTask);
   const listViews = useUI((s) => s.listViews);
   const setListView = useUI((s) => s.setListView);
@@ -125,7 +132,7 @@ function ListsInner() {
   );
 }
 
-function ListLayout({ todos, onAdd }: { todos: Todo[]; onAdd: () => void }) {
+function ListLayout({ todos, onAdd }: { todos: Block[]; onAdd: () => void }) {
   const open = todos
     .filter((t) => t.status !== "done")
     .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || (a.deadline ?? "~").localeCompare(b.deadline ?? "~"));
@@ -148,7 +155,7 @@ function ListLayout({ todos, onAdd }: { todos: Todo[]; onAdd: () => void }) {
   );
 }
 
-function CompletedView({ todos }: { todos: Todo[] }) {
+function CompletedView({ todos }: { todos: Block[] }) {
   // Copy before sorting: `todos` is the array memoized by useCollection, and
   // sorting in place mutates the store's derived state for every other view.
   const done = [...todos].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
@@ -164,12 +171,12 @@ function CompletedView({ todos }: { todos: Todo[] }) {
 
 // ---- Board (kanban) -------------------------------------------------------
 
-function BoardView({ todos, onAdd }: { todos: Todo[]; onAdd: () => void }) {
+function BoardView({ todos, onAdd }: { todos: Block[]; onAdd: () => void }) {
   const update = useSyncUpdate();
   const [dragId, setDragId] = useState<string | null>(null);
 
   const byCol = useMemo(() => {
-    const m: Record<TodoStatus, Todo[]> = { todo: [], in_progress: [], done: [] };
+    const m: Record<TodoStatus, Block[]> = { todo: [], in_progress: [], done: [] };
     for (const t of todos) m[t.status].push(t);
     for (const k of Object.keys(m) as TodoStatus[])
       m[k].sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority));
@@ -183,7 +190,7 @@ function BoardView({ todos, onAdd }: { todos: Todo[]; onAdd: () => void }) {
           key={col.key}
           onDragOver={(e) => e.preventDefault()}
           onDrop={() => {
-            if (dragId) update("todo", dragId, { status: col.key });
+            if (dragId) update("block", dragId, { status: col.key });
             setDragId(null);
           }}
           style={{
@@ -214,7 +221,7 @@ function BoardView({ todos, onAdd }: { todos: Todo[]; onAdd: () => void }) {
   );
 }
 
-function BoardCard({ todo, onDragStart }: { todo: Todo; onDragStart: () => void }) {
+function BoardCard({ todo, onDragStart }: { todo: Block; onDragStart: () => void }) {
   const openEditTask = useUI((s) => s.openEditTask);
   const done = todo.status === "done";
   const when = todo.startTime ?? todo.deadline;
@@ -257,7 +264,7 @@ function BoardCard({ todo, onDragStart }: { todo: Todo; onDragStart: () => void 
 const TL_DAYS = 14;
 const COL_W = 46;
 
-function TimelineView({ todos }: { todos: Todo[] }) {
+function TimelineView({ todos }: { todos: Block[] }) {
   const openEditTask = useUI((s) => s.openEditTask);
   const start = dayjs().startOf("day");
   const days = Array.from({ length: TL_DAYS }, (_, i) => start.add(i, "day"));
@@ -267,7 +274,7 @@ function TimelineView({ todos }: { todos: Todo[] }) {
     .sort((a, b) => (a.startTime ?? a.deadline ?? "").localeCompare(b.startTime ?? b.deadline ?? ""));
   const unscheduled = todos.filter((t) => t.status !== "done" && !t.startTime && !t.deadline);
 
-  function bar(t: Todo) {
+  function bar(t: Block) {
     const when = dayjs(t.startTime ?? t.deadline!);
     const dayIdx = when.diff(start, "day");
     if (dayIdx < 0 || dayIdx >= TL_DAYS) return null;

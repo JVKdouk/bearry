@@ -15,8 +15,9 @@ const LEFT = [
   { key: "/today", icon: <SunOutlined />, label: "Today" },
   { key: "/lists", icon: <UnorderedListOutlined />, label: "Lists" },
 ];
-// Plan keeps its place in the nav drawer — the inbox earns the slot because it
-// is the one destination that accrues work while you are away.
+// Plan and Events keep their place in the nav drawer. Five items plus the FAB
+// leaves each one about 60px on a phone, and the inbox earns its slot because
+// it is the one destination that accrues work while you are away.
 const RIGHT = [
   { key: "/calendar", icon: <CalendarOutlined />, label: "Calendar" },
   { key: "/inbox", icon: <InboxOutlined />, label: "Inbox" },

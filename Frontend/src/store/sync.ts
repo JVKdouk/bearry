@@ -15,11 +15,9 @@ import type { EntityName, SyncEntities } from "@/lib/types";
 
 const ENTITIES: EntityName[] = [
   "project",
-  "todo",
-  "note",
+  "block",
   "taskStep",
   "reminder",
-  "calendarEvent",
   "timeBlock",
   "energyWindow",
   "blockRegion",
@@ -39,11 +37,9 @@ export type RawCollections = Record<EntityName, Record<string, Row>>;
 function emptyCollections(): RawCollections {
   return {
     project: {},
-    todo: {},
-    note: {},
+    block: {},
     taskStep: {},
     reminder: {},
-    calendarEvent: {},
     timeBlock: {},
     energyWindow: {},
     blockRegion: {},
@@ -215,13 +211,34 @@ async function restoreFor(userId: string): Promise<boolean> {
     idbGet<[string, PushOp][]>(KEYS.outbox(userId)),
   ]);
 
+  // Queued writes for entities this version no longer knows about.
+  //
+  // Someone who was offline across the todo/note/calendarEvent → block change
+  // comes back holding ops the server will refuse forever. Dropping them is
+  // the only option — there is nothing to replay them against — but dropping
+  // them *silently* would be an edit vanishing with no trace, which is exactly
+  // what an offline-first app must never do. They're surfaced like any other
+  // refused write.
+  const stranded: { entity: string; id: string; message?: string }[] = [];
   if (Array.isArray(outbox)) {
     for (const [key, op] of outbox) {
-      if (key && op && typeof op === "object") pending.set(key, op);
+      if (!key || !op || typeof op !== "object") continue;
+      if (!(ENTITIES as string[]).includes(op.entity)) {
+        stranded.push({
+          entity: op.entity,
+          id: op.id ?? "",
+          message: "This change was made in an older version and could not be saved.",
+        });
+        continue;
+      }
+      pending.set(key, op);
     }
   }
 
-  if (!collections) return false;
+  if (!collections) {
+    if (stranded.length > 0) useSync.setState({ rejected: stranded });
+    return false;
+  }
   // Guard against a partially-written or schema-drifted blob: every entity key
   // must exist, or selectors would read undefined and crash the UI.
   const restored = emptyCollections();
@@ -234,6 +251,7 @@ async function restoreFor(userId: string): Promise<boolean> {
     cursor: cursor ?? null,
     hydrated: true,
     pendingCount: pending.size,
+    rejected: stranded,
   });
   return true;
 }

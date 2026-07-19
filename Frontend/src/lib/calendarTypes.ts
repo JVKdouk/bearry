@@ -31,5 +31,5 @@ export interface CalendarBlock {
    */
   bearaiTaskId?: string | null;
   /** For events: where it came from, which decides whether it can be edited. */
-  source?: "google" | "bearai";
+  source?: "local" | "google" | "ticktick";
 }

@@ -14,7 +14,7 @@ import {
 } from "@/lib/format";
 import { TEXT } from "@/lib/theme";
 import { describeRepeat } from "@/lib/recurrence";
-import type { Todo } from "@/lib/types";
+import type { Block } from "@/lib/types";
 
 // The card is the app's core object: pills on top, a bold title, a time row,
 // and a footer with its list. `featured` fills it with the accent gradient —
@@ -24,7 +24,7 @@ export function TaskCard({
   featured = false,
   showDate = true,
 }: {
-  todo: Todo;
+  todo: Block;
   featured?: boolean;
   showDate?: boolean;
 }) {
@@ -34,7 +34,13 @@ export function TaskCard({
   const project = projects.find((p) => p.id === todo.projectId);
   const repeatLabel = describeRepeat(todo.recurrenceRule);
 
-  const done = todo.status === "done";
+  const isEvent = todo.kind === "event";
+  // An event has nothing to complete: it either hasn't happened yet or it has.
+  // Treating "past" as done is the honest equivalent, and it's what stops a
+  // finished meeting sitting in the list looking like an outstanding chore.
+  const done = isEvent
+    ? !!todo.endTime && dayjs(todo.endTime).isBefore(dayjs())
+    : todo.status === "done";
   const timed = todo.startTime && todo.endTime;
   const when = todo.startTime ?? todo.deadline;
 
@@ -119,12 +125,14 @@ export function TaskCard({
           )}
         </div>
 
-        {/* complete toggle */}
+        {/* Complete toggle — tasks only. An event completes by happening, so a
+            checkbox on one would promise an action that does nothing. */}
+        {!isEvent && (
         <button
           aria-label={done ? "Mark as not done" : "Mark as done"}
           onClick={(e) => {
             e.stopPropagation();
-            update("todo", todo.id, { status: done ? "todo" : "done" });
+            update("block", todo.id, { status: done ? "todo" : "done" });
           }}
           style={{
             flexShrink: 0,
@@ -152,6 +160,22 @@ export function TaskCard({
         >
           <CheckOutlined style={{ fontSize: 13 }} />
         </button>
+        )}
+        {isEvent && done && (
+          <span
+            style={{
+              flexShrink: 0,
+              fontSize: 11,
+              color: featured ? "rgba(255,255,255,0.85)" : TEXT.tertiary,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            <CheckOutlined style={{ fontSize: 11 }} />
+            Happened
+          </span>
+        )}
       </div>
 
       {/* footer: which list this belongs to */}

@@ -24,6 +24,7 @@ import {
   FlagFilled,
   FlagOutlined,
   HeartOutlined,
+  EnvironmentOutlined,
   MoreOutlined,
   NodeIndexOutlined,
   PlusOutlined,
@@ -39,11 +40,11 @@ import { useCollection, useRecord } from "@/store/hooks";
 import { LIFE_AREAS, PRIORITY_COLOR } from "@/lib/format";
 import { SchedulePopover, type ScheduleValue } from "@/components/SchedulePopover";
 import { ReminderPicker } from "@/components/ReminderPicker";
-import { nextQuarterHour, taskToEvent, taskToNote } from "@/lib/convert";
+import { convertLoses, convertTo, nextQuarterHour } from "@/lib/convert";
 import { fireAtFor, isOffsetUsable, rescheduleReminders } from "@/lib/reminders";
 import { chunkingLabel, isChunkable } from "@/lib/chunking";
 import { SURFACE } from "@/lib/theme";
-import type { Priority, Todo } from "@/lib/types";
+import type { Block, Priority } from "@/lib/types";
 
 const PRIORITY_OPTS = [
   { label: "ASAP", value: "ASAP" as Priority },
@@ -85,14 +86,14 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   const update = useSync((s) => s.update);
   const remove = useSync((s) => s.remove);
   const projects = useCollection("project");
-  const editing = useRecord("todo", editingId);
+  const editing = useRecord("block", editingId);
 
   // Create mode keeps an in-memory draft — nothing is written to the store (or
   // shows up on the calendar) until the user explicitly confirms with Create.
   const isCreate = !editingId;
   // Everything about editing a task is local; only the AI assists need the API.
   const offline = useIsOffline();
-  const [draft, setDraft] = useState<Partial<Todo>>({});
+  const [draft, setDraft] = useState<Partial<Block>>({});
 
   const [date, setDate] = useState<Dayjs | null>(null);
   const [time, setTime] = useState<Dayjs | null>(null);
@@ -134,7 +135,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   const reminders = useMemo(
     () =>
       allReminders
-        .filter((r) => r.targetType === "todo" && r.targetId === editingId && !r.deletedAt)
+        .filter((r) => r.targetType === "block" && r.targetId === editingId && !r.deletedAt)
         .sort((a, b) => a.offsetMinutes - b.offsetMinutes),
     [allReminders, editingId],
   );
@@ -146,7 +147,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
         .filter(
           (l) =>
             l.linkType === "blocks" &&
-            l.toType === "todo" &&
+            l.toType === "block" &&
             l.toId === editingId &&
             !l.deletedAt,
         )
@@ -156,7 +157,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
 
   // Anything open that isn't this task. Excluding the task itself is what stops
   // the most obvious way to create a self-blocking deadlock.
-  const allTodos = useCollection("todo");
+  const allTodos = useCollection("block");
   const candidateBlockers = useMemo(
     () =>
       allTodos.filter(
@@ -172,9 +173,9 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
     for (const id of next) {
       if (!current.has(id)) {
         create("link", {
-          fromType: "todo",
+          fromType: "block",
           fromId: id,
-          toType: "todo",
+          toType: "block",
           toId: editingId,
           linkType: "blocks",
         });
@@ -195,7 +196,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   // Sub-steps for the task being edited (the ADHD "doing" layer).
   const allSteps = useCollection("taskStep");
   const steps = allSteps
-    .filter((s) => s.todoId === editingId)
+    .filter((s) => s.blockId === editingId)
     .sort((a, b) => a.order - b.order);
 
   // Seed local state whenever the panel opens (or switches task).
@@ -209,9 +210,10 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       setDuration(editing.estimatedDuration ?? 30);
       return;
     }
-    const base: Partial<Todo> = {
+    const base: Partial<Block> = {
       title: "",
-      notes: null,
+      body: null,
+      kind: "task",
       status: "todo",
       priority: "medium",
       energyDemand: "medium",
@@ -247,11 +249,50 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   }, [open, editingId]);
 
   // The record being edited, or the unsaved draft.
-  const v: Partial<Todo> = isCreate ? draft : (editing ?? {});
+  const v: Partial<Block> = isCreate ? draft : (editing ?? {});
 
-  function patch(p: Partial<Todo>) {
-    if (editingId) update("todo", editingId, p);
-    else setDraft((d) => ({ ...d, ...p }));
+  /** Fields on an imported block that a local edit takes ownership of. */
+  const pins = useMemo(
+    () =>
+      new Set(
+        (editing?.pinnedFields ?? "")
+          .split(",")
+          .map((f) => f.trim())
+          .filter(Boolean),
+      ),
+    [editing?.pinnedFields],
+  );
+  const imported = !!editing && editing.source !== "local";
+
+  /**
+   * Write a change, and on an imported block record that the user now owns the
+   * field.
+   *
+   * The pin goes in the same patch as the value. Splitting them would leave a
+   * window where the edit exists unpinned and the next import reverts it —
+   * which is the lie this exists to prevent: without a pin, editing an imported
+   * block saves, looks applied, and is silently undone on the next sync.
+   */
+  function patch(p: Partial<Block>) {
+    if (!editingId) {
+      setDraft((d) => ({ ...d, ...p }));
+      return;
+    }
+    const next = { ...p };
+    if (imported) {
+      const newly = (["title", "body", "location"] as const).filter(
+        (f) => f in p && !pins.has(f),
+      );
+      if (newly.length > 0) next.pinnedFields = [...pins, ...newly].join(",");
+    }
+    update("block", editingId, next);
+  }
+
+  function unpin(field: string) {
+    if (!editingId) return;
+    const rest = [...pins].filter((f) => f !== field);
+    update("block", editingId, { pinnedFields: rest.join(",") || null });
+    message.success(`"${field}" follows the source again from the next sync`);
   }
 
   function closePanel() {
@@ -307,7 +348,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       }
       suggested.forEach((text, i) =>
         create("taskStep", {
-          todoId: editingId,
+          blockId: editingId,
           text,
           order: steps.length + i,
           isFirstStep: steps.length === 0 && i === 0,
@@ -334,7 +375,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
     const text = newStep.trim();
     if (!text || !editingId) return;
     create("taskStep", {
-      todoId: editingId,
+      blockId: editingId,
       text,
       order: steps.length,
       isFirstStep: steps.length === 0,
@@ -353,20 +394,31 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
    * Steps don't survive — neither notes nor events have them. That's stated in
    * the confirm rather than discovered afterwards.
    */
-  function convertTo(target: "note" | "event") {
+  /**
+   * Turn this block into another kind.
+   *
+   * One patch on the same row. This used to create a replacement, copy what it
+   * could, and delete the original — three writes, two of which could fail
+   * independently, and every step, link and reminder pointing at the old id was
+   * either re-pointed by hand or quietly orphaned. Now nothing moves.
+   *
+   * Steps are the exception, and the only thing a conversion still destroys:
+   * neither an event nor a note has them.
+   */
+  function convertKind(target: "task" | "note" | "event") {
     if (!editingId || !editing) return;
+    if (target === editing.kind) return;
 
-    if (target === "note") {
-      create("note", taskToNote(editing));
-      message.success("Converted to a note");
-    } else {
-      create("calendarEvent", taskToEvent(editing, nextQuarterHour()));
-      message.success("Converted to an event");
-    }
+    if (target !== "task") for (const step of steps) remove("taskStep", step.id);
+    update("block", editingId, convertTo(editing, target, nextQuarterHour()));
 
-    for (const step of steps) remove("taskStep", step.id);
-    remove("todo", editingId);
-    closePanel();
+    message.success(
+      target === "note"
+        ? "Converted to a note"
+        : target === "event"
+          ? "Converted to an event"
+          : "Converted to a task",
+    );
   }
 
   /**
@@ -385,25 +437,26 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       const start = date && time
         ? date.hour(time.hour()).minute(time.minute()).second(0).millisecond(0).toDate()
         : nextQuarterHour();
-      const eventId = create("calendarEvent", {
-        source: "bearai",
+      const eventId = create("block", {
+        kind: "event",
         title,
-        description: draft.notes ?? null,
-        start: start.toISOString(),
-        end: new Date(start.getTime() + (duration || 30) * 60_000).toISOString(),
+        body: draft.body ?? null,
+        startTime: start.toISOString(),
+        endTime: new Date(start.getTime() + (duration || 30) * 60_000).toISOString(),
+        estimatedDuration: duration || 30,
         isFixed: true,
       });
       // An event always has a moment, even when the drawer had no date on it —
       // so reminders count back from the start it actually got, not from the
       // empty picker.
       for (const m of usableDraftReminders(start)) {
-        create("reminder", reminderRow("event", eventId, m, start));
+        create("reminder", reminderRow("block", eventId, m, start));
       }
     } else {
-      const todoId = create("todo", { ...draft, title, status: "todo", order: 0 });
+      const todoId = create("block", { ...draft, kind: "task", title, status: "todo", order: 0 });
       if (reminderStart) {
         for (const m of usableDraftReminders(reminderStart)) {
-          create("reminder", reminderRow("todo", todoId, m, reminderStart));
+          create("reminder", reminderRow("block", todoId, m, reminderStart));
         }
       }
     }
@@ -434,7 +487,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
     [date, time],
   );
 
-  function reminderRow(targetType: "todo" | "event", targetId: string, offsetMinutes: number, start: Date) {
+  function reminderRow(targetType: "block", targetId: string, offsetMinutes: number, start: Date) {
     return {
       targetType,
       targetId,
@@ -455,7 +508,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       return;
     }
     if (!editingId || !reminderStart) return;
-    create("reminder", reminderRow("todo", editingId, offsetMinutes, reminderStart));
+    create("reminder", reminderRow("block", editingId, offsetMinutes, reminderStart));
   }
 
   function removeReminder(id: string) {
@@ -705,18 +758,72 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
             />
           </label>
 
-          {/* Converting is rare and destructive, so it lives at the bottom of
-              the overflow menu rather than beside the everyday controls. */}
-          {!isCreate && (
+          {/* Where it happens. Events only — a task has a time, not a place,
+              and a note has neither. */}
+          {!isCreate && editing?.kind === "event" && (
+            <label style={metaLabel}>
+              <EnvironmentOutlined /> Location
+              <Input
+                size="small"
+                placeholder="Where"
+                value={v.location ?? ""}
+                onChange={(e) => patch({ location: e.target.value || null })}
+                style={{ marginTop: 4 }}
+              />
+            </label>
+          )}
+
+          {/* An imported block follows its source except where the user has
+              taken a field over. Saying which, and offering it back, is what
+              keeps that rule visible rather than surprising. */}
+          {imported && pins.size > 0 && (
+            <div style={{ borderTop: "1px solid #2a2a33", paddingTop: 10 }}>
+              <div style={metaLabel}>Your edits (not synced)</div>
+              {[...pins].map((f) => (
+                <Button
+                  key={f}
+                  size="small"
+                  type="text"
+                  style={{ padding: 0, height: 22, fontSize: 12 }}
+                  onClick={() => unpin(f)}
+                >
+                  Restore {f} from source
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {/* Converting stays at the bottom of the overflow menu rather than
+              beside the everyday controls — it's rare, and it's the one action
+              here that can still destroy something (steps). */}
+          {!isCreate && editing && (
             <div style={{ borderTop: "1px solid #2a2a33", paddingTop: 10 }}>
               <div style={metaLabel}>Convert to</div>
               <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                <Button size="small" style={{ flex: 1 }} onClick={() => convertTo("note")}>
-                  Note
-                </Button>
-                <Button size="small" style={{ flex: 1 }} onClick={() => convertTo("event")}>
-                  Event
-                </Button>
+                {(["task", "event", "note"] as const)
+                  .filter((k) => k !== editing.kind)
+                  .map((k) => {
+                    const loses = convertLoses(editing.kind, k, steps.length);
+                    return (
+                      <Popconfirm
+                        key={k}
+                        title={loses ?? undefined}
+                        okText="Convert"
+                        disabled={!loses}
+                        onConfirm={() => convertKind(k)}
+                      >
+                        <Button
+                          size="small"
+                          style={{ flex: 1, textTransform: "capitalize" }}
+                          onClick={() => {
+                            if (!loses) convertKind(k);
+                          }}
+                        >
+                          {k}
+                        </Button>
+                      </Popconfirm>
+                    );
+                  })}
               </div>
               <div style={{ fontSize: 11, color: "#6f6f80", marginTop: 6, lineHeight: 1.45 }}>
                 {"A note isn't actionable. An event holds time and completes itself once it passes."}
@@ -897,8 +1004,8 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
         )}
 
         <textarea
-          value={v.notes ?? ""}
-          onChange={(e) => patch({ notes: e.target.value || null })}
+          value={v.body ?? ""}
+          onChange={(e) => patch({ body: e.target.value || null })}
           placeholder="Start writing — notes, links, sub-steps…"
           style={{
             width: "100%",
@@ -991,7 +1098,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
             okButtonProps={{ danger: true }}
             onConfirm={() => {
               if (editingId) {
-                remove("todo", editingId);
+                remove("block", editingId);
                 closePanel();
               }
             }}
