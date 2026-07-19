@@ -15,6 +15,11 @@ import type { CalendarBlock } from "@/lib/calendarTypes";
  *
  * There is no planning here (a month is far past any honest planning horizon),
  * which is why the Plan button falls back to the week.
+ *
+ * Two click targets per cell: the cell creates on that day, the date number
+ * opens it. That split is deliberate — creating is the common intent from a
+ * month overview, and it was previously the double-click, a gesture that
+ * doesn't exist on touch.
  */
 export function MonthGrid({
   days,
@@ -109,10 +114,22 @@ export function MonthGrid({
               return (
                 <div
                   key={d.toISOString()}
-                  onClick={() => onPickDay(d)}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    onCreate(d);
+                  // Clicking empty space in a day creates something on it.
+                  // Drilling in used to be the click and creating the
+                  // double-click, which had it backwards: you land on a month to
+                  // *put something somewhere*, and a double-click is not a
+                  // gesture anyone tries on a touch screen. Opening the day now
+                  // lives on the date number, which is the part that looks like
+                  // a link to the day.
+                  onClick={() => onCreate(d)}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Add on ${d.format("dddd D MMMM")}`}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      onCreate(d);
+                    }
                   }}
                   style={{
                     borderRight: `1px solid ${SURFACE.borderSoft}`,
@@ -128,22 +145,30 @@ export function MonthGrid({
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 2 }}>
-                    <span
+                    <button
+                      type="button"
+                      aria-label={`Open ${d.format("dddd D MMMM")}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPickDay(d);
+                      }}
                       style={{
                         minWidth: 20,
                         height: 20,
+                        border: "none",
                         borderRadius: 999,
                         display: "grid",
                         placeItems: "center",
                         fontSize: 12,
                         fontWeight: isToday ? 700 : 500,
                         padding: "0 5px",
+                        cursor: "pointer",
                         color: isToday ? "#fff" : inMonth ? TEXT.primary : TEXT.secondary,
                         background: isToday ? SUNSET : "transparent",
                       }}
                     >
                       {d.format("D")}
-                    </span>
+                    </button>
                   </div>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>

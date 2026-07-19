@@ -19,6 +19,7 @@
  */
 
 import type { Dayjs } from "dayjs";
+import { DayColumnHeader } from "@/components/DayColumnHeader";
 import type { CalendarBlock } from "@/lib/calendarTypes";
 
 export interface PeekRegion {
@@ -44,16 +45,14 @@ interface Props {
   titleLines: (heightPx: number, tiny: boolean) => number;
   hours: number[];
   hourPx: number;
-  headerH: number;
   showHeader: boolean;
+  /** Same source as the live grid, so the nudge doesn't pop in on release. */
+  untimedForDay: (day: Dayjs) => { id: string; title: string }[];
   colMinWidth: number;
   gridHeight: number;
   today: Dayjs;
   borderColor: string;
-  bg: string;
   textPrimary: string;
-  textTertiary: string;
-  todayBg: string;
   /** In a 45px week column only one of time/name fits; the name wins. */
   tiny: boolean;
   /** Below this height a block has no room for its time as well as its name. */
@@ -72,16 +71,13 @@ export function CalendarPeek({
   titleLines,
   hours,
   hourPx,
-  headerH,
   showHeader,
+  untimedForDay,
   colMinWidth,
   gridHeight,
   today,
   borderColor,
-  bg,
   textPrimary,
-  textTertiary,
-  todayBg,
   tiny,
   stackedMinPx,
 }: Props) {
@@ -97,38 +93,16 @@ export function CalendarPeek({
             style={{ flex: 1, minWidth: colMinWidth, borderRight: `1px solid ${borderColor}` }}
           >
             {showHeader && (
-              <div
-                style={{
-                  height: headerH,
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 1,
-                  borderBottom: `1px solid ${borderColor}`,
-                  background: bg,
-                }}
-              >
-                <span style={{ fontSize: 10.5, color: textTertiary, letterSpacing: 0.4 }}>
-                  {day.format("ddd").toUpperCase()}
-                </span>
-                <span
-                  style={{
-                    display: "grid",
-                    placeItems: "center",
-                    minWidth: 24,
-                    height: 22,
-                    padding: "0 6px",
-                    borderRadius: 999,
-                    fontSize: 13.5,
-                    fontWeight: 700,
-                    color: isToday ? "#fff" : textPrimary,
-                    background: isToday ? todayBg : "transparent",
-                  }}
-                >
-                  {day.format("D")}
-                </span>
-              </div>
+              // The real component, not a copy of it: the peek exists so that
+              // finishing a swipe changes nothing, and a hand-mirrored header
+              // is exactly the kind of thing that drifts and then pops.
+              <DayColumnHeader
+                day={day}
+                isToday={isToday}
+                untimed={untimedForDay(day)}
+                onOpenTask={() => {}}
+                compact={tiny}
+              />
             )}
 
             <div style={{ position: "relative", height: gridHeight }}>

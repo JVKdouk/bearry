@@ -16,8 +16,23 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   /* Nothing should ever scroll the page sideways. Wide content (calendar,
-     board, timeline) scrolls inside its own container, not the body. */
-  overflow-x: hidden;
+     board, timeline) scrolls inside its own container, not the body.
+
+     `clip`, not `hidden`, and the difference is load-bearing: `hidden` makes
+     the page a scroll container, so `scrollWidth` grows to include anything
+     hanging off the right edge. Antd measures exactly that to decide whether a
+     popover fits — so an overflowing popover made the page "wider", which made
+     antd conclude it fitted, so it never repositioned and stayed clipped. With
+     `clip` there is no scroll container and the measurement stays honest. */
+  overflow-x: clip;
+  /* Turn off the browser's own pull-to-refresh.
+     Installed as a PWA there is no address bar to reveal, so a downward drag
+     went straight to the platform's reload — which discards in-memory state and
+     the offline outbox's in-flight work, and fires from the header where our
+     own gesture can't see it. Two refresh gestures reading the same drag is a
+     coin toss over which one you get; this leaves exactly one, ours, which
+     syncs instead of reloading. */
+  overscroll-behavior-y: none;
 }
 
 /* Auth screen: centered, and correct on mobile where 100vh overshoots the
@@ -127,11 +142,96 @@ a {
   background: #191922;
   border-color: #2a2a37;
 }
+/* The featured card's palette is a *cycle* — it starts and ends on the same
+   purple — so that a copy placed after it joins invisibly. That's what lets the
+   hover drift below loop forever without a seam; a plain purple→pink→orange
+   ramp cannot, because its two ends don't match and every wrap shows a hard
+   edge between orange and purple. */
 .card-featured {
-  background: linear-gradient(135deg, #a855f7 0%, #e0559b 48%, #ff6b2c 100%);
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+    90deg,
+    #a855f7 0%,
+    #e0559b 25%,
+    #ff6b2c 50%,
+    #e0559b 75%,
+    #a855f7 100%
+  );
   border: none;
   /* shadow blends both accents so the glow reads as one light source */
   box-shadow: 0 10px 30px rgba(168, 85, 247, 0.2), 0 6px 22px rgba(255, 107, 44, 0.18);
+}
+
+/* Content has to outrank the drifting layer, which is painted into the card's
+   own background area. */
+.card-featured > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* The generic .card-interactive hover paints a flat grey, which on the one
+   gradient element on the screen reads as the card going *dead* under the
+   pointer rather than responding to it. This replaces it with movement.
+
+   Two tiles of exactly the card's width, translated by exactly one tile: the
+   frame at the end of the animation is pixel-identical to the frame at the
+   start, so `infinite` genuinely loops instead of snapping. Using transform
+   rather than background-position keeps it on the compositor and makes the
+   "exactly one tile" arithmetic something CSS can express honestly. */
+/* .card-interactive:hover is a `background` shorthand, so it wipes this card's
+   gradient to flat grey underneath. The drifting layer happens to cover it, but
+   relying on that means any failure to paint ::before shows a grey card — so
+   the gradient is restored explicitly rather than merely hidden. */
+.card-interactive.card-featured:hover {
+  background: linear-gradient(
+    90deg,
+    #a855f7 0%,
+    #e0559b 25%,
+    #ff6b2c 50%,
+    #e0559b 75%,
+    #a855f7 100%
+  );
+  border-color: transparent;
+}
+
+.card-interactive.card-featured:hover::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 200%;
+  z-index: 0;
+  background-image: linear-gradient(
+    90deg,
+    #a855f7 0%,
+    #e0559b 25%,
+    #ff6b2c 50%,
+    #e0559b 75%,
+    #a855f7 100%
+  );
+  background-size: 50% 100%;
+  background-repeat: repeat-x;
+  animation: featured-drift 7s linear infinite;
+}
+
+@keyframes featured-drift {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* Motion for its own sake is exactly the kind of thing that costs this audience
+   attention rather than earning it, so anyone who has asked for less of it gets
+   the card holding still — still gradient-coloured, just not moving. */
+@media (prefers-reduced-motion: reduce) {
+  .card-interactive.card-featured:hover::before {
+    animation: none;
+  }
 }
 
 /* Pill tag */

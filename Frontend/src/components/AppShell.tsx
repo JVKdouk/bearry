@@ -31,6 +31,8 @@ import { useIntegrations } from "@/store/integrations";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { useCapture } from "@/store/capture";
 import { useIsOffline, watchConnectivity } from "@/store/network";
+import { dismissOverlays, hasOpenOverlay, shortcutFor } from "@/lib/shortcuts";
+import { fitPopups } from "@/lib/popoverFit";
 import { SyncBadge } from "./SyncBadge";
 import { SidebarLists } from "./SidebarLists";
 import { TaskDetail } from "./TaskDetail";
@@ -169,6 +171,88 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     closeTaskDrawer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
+
+  /**
+   * Keep every popup inside the screen.
+   *
+   * Antd's own overflow handling can't be trusted here: it measures the page to
+   * decide whether a popup fits, and an open Drawer makes <body> a scroll
+   * container that grows to include the overflowing popup — so the popup makes
+   * the page wide enough to hold itself, and antd never repositions. This
+   * watches for popups being added or moved and clamps them unconditionally.
+   *
+   * Not gated on mobile: a narrow desktop window has exactly the same problem,
+   * and "only on phones" is how this comes back.
+   */
+  useEffect(() => {
+    const run = () => fitPopups(document);
+
+    // Popups portal to the end of <body>; the attribute filter catches antd
+    // repositioning an already-mounted one.
+    const observer = new MutationObserver(run);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["style", "class"],
+    });
+
+    window.addEventListener("resize", run);
+    window.addEventListener("orientationchange", run);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", run);
+      window.removeEventListener("orientationchange", run);
+    };
+  }, []);
+
+  /**
+   * Desktop keyboard shortcuts.
+   *
+   * Mobile is excluded because there's no keyboard to serve and the only thing
+   * a listener would achieve is reacting to the on-screen one. The decision
+   * itself lives in `shortcutFor` so the "never fire while typing" rule can be
+   * tested against real element shapes rather than trusted.
+   *
+   * `n` is not preventDefault-ed when it does nothing, so typing stays entirely
+   * untouched in every case this declines to handle.
+   */
+  useEffect(() => {
+    if (isMobile) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      const overlayOpen = hasOpenOverlay(document);
+      const action = shortcutFor(
+        {
+          key: e.key,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+          altKey: e.altKey,
+          shiftKey: e.shiftKey,
+          target: e.target as HTMLElement | null,
+        },
+        { overlayOpen },
+      );
+
+      // Escape peels one layer at a time: the popover first, the drawer only
+      // once nothing is on top of it. Without this, one Escape in the reminder
+      // popover took the unsaved draft with it.
+      if (e.key === "Escape" && overlayOpen) {
+        e.preventDefault();
+        dismissOverlays(document);
+        return;
+      }
+
+      if (action === "new-task") {
+        e.preventDefault();
+        openCreateTask();
+      } else if (action === "close") {
+        closeTaskDrawer();
+        setNavDrawer(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMobile, openCreateTask, closeTaskDrawer, setNavDrawer]);
 
   /**
    * Warm every top-level route once we're signed in.
@@ -427,6 +511,89 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <SidebarLists onNavigate={() => setNavDrawer(false)} />
               </Suspense>
             </div>
+
+            {/* Account, anchored to the bottom of the nav rather than floating
+                in the header. The header is for the screen you're on; who you
+                are signed in as is navigation-level, and on a phone it was
+                competing for the same 44px as the sync badge and the
+                integrations button. */}
+            <div style={{ borderTop: "1px solid #17171f", padding: 8 }}>
+              <Dropdown
+                menu={{
+                  items: [
+                    {
+                      key: "settings",
+                      icon: <SettingOutlined />,
+                      label: "Settings",
+                      onClick: () => {
+                        router.push("/settings");
+                        setNavDrawer(false);
+                      },
+                    },
+                    { type: "divider" },
+                    {
+                      key: "logout",
+                      icon: <LogoutOutlined />,
+                      label: "Log out",
+                      onClick: () => void logout(),
+                    },
+                  ],
+                }}
+                trigger={["click"]}
+                placement="topLeft"
+              >
+                <button
+                  aria-label="Account"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    width: "100%",
+                    border: "none",
+                    background: "transparent",
+                    borderRadius: 10,
+                    padding: "8px 8px",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  <Avatar style={{ background: ACCENT, flexShrink: 0 }} size={34}>
+                    {(user.first_name?.[0] ?? user.email[0] ?? "?").toUpperCase()}
+                  </Avatar>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span
+                      style={{
+                        display: "block",
+                        fontSize: 13.5,
+                        fontWeight: 600,
+                        color: "#e8e8ef",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {user.first_name || user.email.split("@")[0]}
+                    </span>
+                    {/* The email is the thing that actually disambiguates which
+                        account you're in, so it stays visible rather than
+                        hiding behind a tap. */}
+                    <span
+                      style={{
+                        display: "block",
+                        fontSize: 11.5,
+                        color: "#6f6f80",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {user.email}
+                    </span>
+                  </span>
+                  <span style={{ color: "#6f6f80", fontSize: 11, flexShrink: 0 }}>⌃⌄</span>
+                </button>
+              </Dropdown>
+            </div>
           </div>
         </Drawer>
       )}
@@ -465,7 +632,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               New task
             </Button>
           )}
-          {isMobile && userMenu}
         </header>
 
         <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex" }}>

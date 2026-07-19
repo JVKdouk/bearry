@@ -17,6 +17,7 @@ import {
   weekendFactor,
   type Persona,
 } from "./persona";
+import { isChunkable } from "./chunking";
 import type {
   SchedulerInput,
   ScheduleProposal,
@@ -247,7 +248,9 @@ function reasonFor(
  */
 function chunkSizes(task: SchedulableTask, sessionLength: number, personaMin: number): number[] {
   const cap = Math.min(task.maxChunk ?? sessionLength, sessionLength);
-  if (!task.chunkable || task.estimatedDuration <= cap) return [task.estimatedDuration];
+  if (!isChunkable(task.chunkable, task.estimatedDuration) || task.estimatedDuration <= cap) {
+    return [task.estimatedDuration];
+  }
   // The task's own floor wins if it set one; otherwise the persona decides how
   // small a fragment is still worth the cost of starting.
   const min = task.minChunk ?? personaMin;

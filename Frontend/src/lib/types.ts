@@ -45,7 +45,8 @@ export interface Todo extends SyncBase {
   estimatedDuration: number;
   energyDemand: EnergyLevel;
   desire?: Desire;
-  chunkable: boolean;
+  /** null = undecided, so the duration rule in lib/chunking.ts applies. */
+  chunkable: boolean | null;
   minChunk?: number | null;
   maxChunk?: number | null;
   recurrenceRule?: string | null;

@@ -130,6 +130,10 @@ export function PullToRefresh({ onRefresh, children, enabled = true, style }: Pr
         style={{
           height: "100%",
           overflowY: "auto",
+          // Stops a scroll that runs off the end of this list from chaining out
+          // to the page behind it, which is the other half of what used to hand
+          // the gesture to the platform's own reload.
+          overscrollBehaviorY: "contain",
           transform: `translateY(${distance}px)`,
           transition: startRef.current ? "none" : "transform 0.2s ease",
         }}

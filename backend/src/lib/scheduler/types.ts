@@ -22,7 +22,8 @@ export type SchedulableTask = {
   desire: Desire;
   /** Preferred life area — the scheduler favors matching regions (§8.4). */
   category?: LifeArea | null;
-  chunkable: boolean;
+  /** null = undecided; the duration rule in chunking.ts applies. */
+  chunkable: boolean | null;
   minChunk?: number | null;
   maxChunk?: number | null;
   /** Older tasks get a small age boost so nothing rots forever. */

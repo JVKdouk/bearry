@@ -19,6 +19,8 @@
 import { useEffect, useState } from "react";
 import { App as AntdApp, Button, Drawer, Popconfirm, Popover, Tooltip } from "antd";
 import {
+  BellFilled,
+  BellOutlined,
   CheckOutlined,
   CloseOutlined,
   DeleteOutlined,
@@ -29,7 +31,9 @@ import {
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useSync } from "@/store/sync";
-import { useRecord } from "@/store/hooks";
+import { useCollection, useRecord } from "@/store/hooks";
+import { ReminderPicker } from "@/components/ReminderPicker";
+import { fireAtFor } from "@/lib/reminders";
 import { describeRepeat } from "@/lib/recurrence";
 import { eventToNote, eventToTask } from "@/lib/convert";
 import { durationLabel } from "@/lib/format";
@@ -113,6 +117,58 @@ export function EventDetail({ eventId, onClose, isMobile, overlay }: Props) {
     onClose();
   }
 
+  /**
+   * Reminders for this event.
+   *
+   * An event is exactly the thing people most want warning about — it's the
+   * one you can't reschedule your way out of once it starts. Same control as
+   * the task drawer, in the same place, for the same reason.
+   */
+  const allReminders = useCollection("reminder");
+  const reminders = allReminders
+    .filter((r) => r.targetType === "event" && r.targetId === eventId && !r.deletedAt)
+    .sort((a, b) => a.offsetMinutes - b.offsetMinutes);
+
+  const reminderControl = (
+    <Popover
+      trigger="click"
+      placement="bottomRight"
+      content={
+        <ReminderPicker
+          start={event ? new Date(event.start) : null}
+          reminders={reminders.map((r) => ({ id: r.id, offsetMinutes: r.offsetMinutes }))}
+          onAdd={(offsetMinutes) => {
+            if (!event) return;
+            const start = new Date(event.start);
+            create("reminder", {
+              targetType: "event",
+              targetId: event.id,
+              kind: "time",
+              triggerSpec: JSON.stringify({ offsetMinutes }),
+              offsetMinutes,
+              fireAt: fireAtFor(start, offsetMinutes).toISOString(),
+            });
+          }}
+          onRemove={(id) => remove("reminder", id)}
+        />
+      }
+    >
+      <Tooltip title={reminders.length > 0 ? "Reminders" : "Remind me"}>
+        <Button
+          type="text"
+          aria-label="Reminders"
+          icon={
+            reminders.length > 0 ? (
+              <BellFilled style={{ color: "#e5893f" }} />
+            ) : (
+              <BellOutlined style={{ color: "#7c7c8a" }} />
+            )
+          }
+        />
+      </Tooltip>
+    </Popover>
+  );
+
   const repeat = describeRepeat(event?.recurrenceRule);
   const past = !!event && dayjs(event.end).isBefore(dayjs());
   const minutes = event
@@ -124,7 +180,7 @@ export function EventDetail({ eventId, onClose, isMobile, overlay }: Props) {
       trigger="click"
       placement="topRight"
       content={
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, width: 232 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, width: 232, maxWidth: "100%" }}>
           <div style={{ fontSize: 11.5, color: "#a9a9b8", letterSpacing: 0.3 }}>Convert to</div>
           <div style={{ display: "flex", gap: 6 }}>
             <Button size="small" style={{ flex: 1 }} onClick={() => convertTo("task")}>
@@ -192,6 +248,7 @@ export function EventDetail({ eventId, onClose, isMobile, overlay }: Props) {
           </span>
         )}
         <div style={{ flex: 1 }} />
+        {reminderControl}
         {!isMobile && <Button type="text" icon={<CloseOutlined />} onClick={onClose} />}
       </div>
 

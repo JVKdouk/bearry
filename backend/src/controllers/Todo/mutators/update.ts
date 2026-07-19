@@ -16,7 +16,7 @@ const Body = z.object({
   deadline: z.string().datetime().nullish(),
   estimatedDuration: z.number().int().min(1).max(1440).optional(),
   energyDemand: z.enum(["high", "medium", "low"]).optional(),
-  chunkable: z.boolean().optional(),
+  chunkable: z.boolean().nullable().optional(),
   order: z.number().optional(),
 });
 

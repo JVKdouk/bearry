@@ -3,6 +3,7 @@
 import { Segmented, Slider, Typography } from "antd";
 import { useCollection } from "@/store/hooks";
 import { useSync } from "@/store/sync";
+import { matchTemplate, PERSONA_TEMPLATES, STEADY } from "@/lib/personas";
 import { SURFACE, TEXT, ACCENT } from "@/lib/theme";
 
 const { Text } = Typography;
@@ -20,18 +21,7 @@ const { Text } = Typography;
  */
 
 
-const DEFAULTS: Record<string, string> = {
-  sessionLength: "50",
-  breakLength: "15",
-  longBreakEvery: "3",
-  longBreakLength: "30",
-  dailyMaxMinutes: "240",
-  maxSessionsPerDay: "5",
-  startDifficulty: "moderate",
-  stopDifficulty: "moderate",
-  weekendMode: "light",
-  flexibility: "balanced",
-};
+const DEFAULTS = STEADY;
 
 function Row({
   title,
@@ -83,6 +73,21 @@ export function RhythmTab() {
 
   const num = (name: string) => Number(valueOf(name));
 
+  /** Everything persona-shaped, keyed without the prefix, for template matching. */
+  const personaValues = Object.fromEntries(
+    settings
+      .filter((s) => s.key.startsWith("persona.") && !s.deletedAt)
+      .map((s) => [s.key.slice("persona.".length), s.value]),
+  );
+  const active = matchTemplate(personaValues);
+
+  /** Apply a template by writing every one of its keys. */
+  function applyTemplate(id: string) {
+    const template = PERSONA_TEMPLATES.find((t) => t.id === id);
+    if (!template) return;
+    for (const [key, value] of Object.entries(template.values)) set(key, value);
+  }
+
   const sessionMinutes = num("sessionLength");
   const dailyMinutes = num("dailyMaxMinutes");
   const sessions = num("maxSessionsPerDay");
@@ -100,6 +105,59 @@ export function RhythmTab() {
         It would rather leave a task unscheduled than hand you a wall of blocks
         you&apos;ll bounce off.
       </Text>
+
+      {/* Start from a shape rather than nine sliders. Answering nine questions
+          about your own attention before the app will plan anything is exactly
+          the setup task this audience abandons halfway through — but the
+          answers still matter, so the individual controls stay right below. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {PERSONA_TEMPLATES.map((t) => {
+          const on = active?.id === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              aria-pressed={on}
+              onClick={() => applyTemplate(t.id)}
+              style={{
+                textAlign: "left",
+                border: `1px solid ${on ? ACCENT : SURFACE.border}`,
+                background: on ? "rgba(229,137,63,0.10)" : SURFACE.card,
+                borderRadius: 14,
+                padding: "13px 15px",
+                cursor: "pointer",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 14.5,
+                  fontWeight: 700,
+                  color: on ? ACCENT : TEXT.primary,
+                  marginBottom: 2,
+                }}
+              >
+                {t.name}
+              </div>
+              <div style={{ fontSize: 12.5, color: TEXT.secondary, marginBottom: 4 }}>
+                {t.tagline}
+              </div>
+              <div style={{ fontSize: 11.5, color: TEXT.tertiary, lineHeight: 1.45 }}>
+                {t.detail}
+              </div>
+            </button>
+          );
+        })}
+
+        {/* Not a choice — a readout. Picking "Custom" would mean nothing, but
+            not saying anything would leave a page where none of the three is
+            highlighted and no explanation for why. */}
+        {!active && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Your settings are your own — they don&apos;t match any of the three.
+            Picking one will overwrite them.
+          </Text>
+        )}
+      </div>
 
       <Row
         title="How long can you actually focus?"

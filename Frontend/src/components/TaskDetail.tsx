@@ -11,9 +11,12 @@ import {
   Popover,
   Segmented,
   Select,
+  Switch,
   Tooltip,
 } from "antd";
 import {
+  BellFilled,
+  BellOutlined,
   BulbOutlined,
   CalendarOutlined,
   CloseOutlined,
@@ -24,6 +27,7 @@ import {
   MoreOutlined,
   NodeIndexOutlined,
   PlusOutlined,
+  ScissorOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
@@ -34,8 +38,10 @@ import { useIsOffline } from "@/store/network";
 import { useCollection, useRecord } from "@/store/hooks";
 import { LIFE_AREAS, PRIORITY_COLOR } from "@/lib/format";
 import { SchedulePopover, type ScheduleValue } from "@/components/SchedulePopover";
+import { ReminderPicker } from "@/components/ReminderPicker";
 import { nextQuarterHour, taskToEvent, taskToNote } from "@/lib/convert";
-import { fireAtFor, rescheduleReminders } from "@/lib/reminders";
+import { fireAtFor, isOffsetUsable, rescheduleReminders } from "@/lib/reminders";
+import { chunkingLabel, isChunkable } from "@/lib/chunking";
 import { SURFACE } from "@/lib/theme";
 import type { Priority, Todo } from "@/lib/types";
 
@@ -103,6 +109,15 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
    * what the thing was. An existing task can still be converted to a note.
    */
   const [createKind, setCreateKind] = useState<"task" | "event">("task");
+  /**
+   * Reminders chosen before the thing exists.
+   *
+   * Held as bare offsets because there's no id to attach a row to yet — they're
+   * materialised against whatever gets created. Without this, "remind me" was
+   * only available on a second visit to a task you'd already saved, which is
+   * precisely when you've stopped thinking about it.
+   */
+  const [draftReminders, setDraftReminders] = useState<number[]>([]);
 
   /**
    * Dependencies (§7.4). Stored as Link rows with `linkType: "blocks"`, where
@@ -221,6 +236,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       d = dayjs(defaults.deadline);
     }
     setDraft(base);
+    setDraftReminders([]);
     // A time supplied by the caller (tapping a calendar slot) means an event is
     // the likelier intent, so start there rather than making them switch.
     setCreateKind(defaults?.startTime ? "event" : "task");
@@ -240,6 +256,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
 
   function closePanel() {
     setDraft({});
+    setDraftReminders([]);
     setNewStep("");
     closeDrawer();
   }
@@ -368,7 +385,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       const start = date && time
         ? date.hour(time.hour()).minute(time.minute()).second(0).millisecond(0).toDate()
         : nextQuarterHour();
-      create("calendarEvent", {
+      const eventId = create("calendarEvent", {
         source: "bearai",
         title,
         description: draft.notes ?? null,
@@ -376,8 +393,19 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
         end: new Date(start.getTime() + (duration || 30) * 60_000).toISOString(),
         isFixed: true,
       });
+      // An event always has a moment, even when the drawer had no date on it —
+      // so reminders count back from the start it actually got, not from the
+      // empty picker.
+      for (const m of usableDraftReminders(start)) {
+        create("reminder", reminderRow("event", eventId, m, start));
+      }
     } else {
-      create("todo", { ...draft, title, status: "todo", order: 0 });
+      const todoId = create("todo", { ...draft, title, status: "todo", order: 0 });
+      if (reminderStart) {
+        for (const m of usableDraftReminders(reminderStart)) {
+          create("reminder", reminderRow("todo", todoId, m, reminderStart));
+        }
+      }
     }
     closePanel();
   }
@@ -391,20 +419,99 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
    * changing the date has to rewrite start/end when a time is set, and clearing
    * the date has to drop the repeat rule with it.
    */
-  function addReminder(offsetMinutes: number) {
-    if (!editingId || !date) return;
-    const start = time ? date.hour(time.hour()).minute(time.minute()) : date.hour(9).minute(0);
-    create("reminder", {
-      targetType: "todo",
-      targetId: editingId,
-      kind: "time",
+  /**
+   * The moment reminders count back from.
+   *
+   * A date with no time falls back to 9am rather than midnight: "remind me the
+   * day before" on an all-day task should reach you in the morning, not while
+   * you're asleep.
+   */
+  const reminderStart = useMemo(
+    () =>
+      date
+        ? (time ? date.hour(time.hour()).minute(time.minute()) : date.hour(9).minute(0)).toDate()
+        : null,
+    [date, time],
+  );
+
+  function reminderRow(targetType: "todo" | "event", targetId: string, offsetMinutes: number, start: Date) {
+    return {
+      targetType,
+      targetId,
+      kind: "time" as const,
       // triggerSpec is the encrypted record of intent; fireAt is the cleartext
       // moment the sweep queries against.
       triggerSpec: JSON.stringify({ offsetMinutes }),
       offsetMinutes,
-      fireAt: fireAtFor(start.toDate(), offsetMinutes).toISOString(),
-    });
+      fireAt: fireAtFor(start, offsetMinutes).toISOString(),
+    };
   }
+
+  function addReminder(offsetMinutes: number) {
+    // Before the thing exists there's no id to point at, so the choice is held
+    // in the draft and written out by confirmCreate.
+    if (isCreate) {
+      setDraftReminders((prev) => (prev.includes(offsetMinutes) ? prev : [...prev, offsetMinutes]));
+      return;
+    }
+    if (!editingId || !reminderStart) return;
+    create("reminder", reminderRow("todo", editingId, offsetMinutes, reminderStart));
+  }
+
+  function removeReminder(id: string) {
+    // Draft entries are keyed by their offset, since they have no row yet.
+    if (isCreate) {
+      setDraftReminders((prev) => prev.filter((m) => String(m) !== id));
+      return;
+    }
+    remove("reminder", id);
+  }
+
+  /**
+   * Draft offsets that can still fire against the start the thing actually got.
+   *
+   * The picker only offers usable offsets, but the date can move afterwards —
+   * choose "1 week before" for next month, then pull the task to tomorrow, and
+   * that offset is now in the past. Writing it anyway would create a row that
+   * can never fire and gets silently retired by the server's staleness sweep.
+   */
+  function usableDraftReminders(start: Date): number[] {
+    return draftReminders.filter((m) => isOffsetUsable(start, m));
+  }
+
+  /** What the picker shows — real rows when editing, draft offsets when not. */
+  const reminderRows = isCreate
+    ? draftReminders.map((m) => ({ id: String(m), offsetMinutes: m }))
+    : reminders.map((r) => ({ id: r.id, offsetMinutes: r.offsetMinutes }));
+
+  const reminderControl = (
+    <Popover
+      trigger="click"
+      placement="bottomRight"
+      content={
+        <ReminderPicker
+          start={reminderStart}
+          reminders={reminderRows}
+          onAdd={addReminder}
+          onRemove={removeReminder}
+        />
+      }
+    >
+      <Tooltip title={reminderRows.length > 0 ? "Reminders" : "Remind me"}>
+        <Button
+          type="text"
+          aria-label="Reminders"
+          icon={
+            reminderRows.length > 0 ? (
+              <BellFilled style={{ color: "#e5893f" }} />
+            ) : (
+              <BellOutlined style={{ color: "#7c7c8a" }} />
+            )
+          }
+        />
+      </Tooltip>
+    </Popover>
+  );
 
   /**
    * Move every reminder when the task's time changes.
@@ -457,9 +564,6 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
             patch({ ...schedulePatch(null, null, duration), recurrenceRule: null });
           }}
           onClose={() => setScheduleOpen(false)}
-          reminders={isCreate ? undefined : reminders}
-          onAddReminder={isCreate ? undefined : addReminder}
-          onRemoveReminder={(id) => remove("reminder", id)}
         />
       }
     >
@@ -511,7 +615,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       trigger="click"
       placement="topRight"
       content={
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, width: 220 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, width: 220, maxWidth: "100%" }}>
           <label style={metaLabel}>
             <ThunderboltOutlined /> Energy
             <Select
@@ -564,6 +668,30 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
               />
             </label>
           )}
+          {/* Splitting is a scheduling instruction, not a property of the
+              task, so it sits with the other planner hints.
+
+              The switch shows what will happen: on by itself once the task is
+              long enough to need it, off below that. Touching it hands the
+              decision to the user permanently — length stops mattering from
+              then on, and nothing here or in the planner will move it back.
+              There's deliberately no way to return to "decide by length": an
+              undo for a choice this small is more surface than the choice. */}
+          <div style={metaLabel}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <ScissorOutlined />
+              <span style={{ flex: 1 }}>Split into sittings</span>
+              <Switch
+                size="small"
+                checked={isChunkable(v.chunkable, v.estimatedDuration ?? duration)}
+                onChange={(on) => patch({ chunkable: on })}
+              />
+            </div>
+            <div style={{ fontSize: 11, color: "#6f6f80", marginTop: 4, lineHeight: 1.45 }}>
+              {chunkingLabel(v.chunkable, v.estimatedDuration ?? duration)}
+            </div>
+          </div>
+
           <label style={metaLabel}>
             Category
             <Select
@@ -637,6 +765,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
         )}
         {datePill}
         <div style={{ flex: 1 }} />
+        {reminderControl}
         {priorityControl}
         <Tooltip title="Close">
           <Button type="text" icon={<CloseOutlined />} onClick={closePanel} />

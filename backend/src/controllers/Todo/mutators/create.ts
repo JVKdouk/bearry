@@ -14,7 +14,7 @@ const Body = z.object({
   deadline: z.string().datetime().nullish(),
   estimatedDuration: z.number().int().min(1).max(1440).optional(),
   energyDemand: z.enum(["high", "medium", "low"]).optional(),
-  chunkable: z.boolean().optional(),
+  chunkable: z.boolean().nullable().optional(),
   minChunk: z.number().int().nullish(),
   maxChunk: z.number().int().nullish(),
 });
@@ -35,7 +35,9 @@ const createTodo: Endpoint = async (request) => {
       deadline: b.deadline ? new Date(b.deadline) : null,
       estimatedDuration: b.estimatedDuration ?? 30,
       energyDemand: b.energyDemand ?? "medium",
-      chunkable: b.chunkable ?? false,
+      // null, not false: "undecided" lets the duration rule apply, whereas false
+      // would silently mean "never split this" for every task ever created.
+      chunkable: b.chunkable ?? null,
       minChunk: b.minChunk ?? null,
       maxChunk: b.maxChunk ?? null,
     }),

@@ -36,6 +36,7 @@ import { ACCENT, SUNSET, SURFACE, TEXT, WARM } from "@/lib/theme";
 import { expandRange } from "@/lib/recurrence";
 import { CalendarPeek } from "@/components/CalendarPeek";
 import { MonthGrid } from "@/components/MonthGrid";
+import { DayColumnHeader, DAY_HEADER_H } from "@/components/DayColumnHeader";
 import { EventDetail } from "@/components/EventDetail";
 import type { CalendarBlock as Block, CalendarView as View } from "@/lib/calendarTypes";
 import {
@@ -45,7 +46,8 @@ import {
   shouldClaim,
   trackOffset,
 } from "@/lib/swipe";
-import type { Diagnosis, FindingAction, ScheduledBlock, ScheduleProposal } from "@/lib/types";
+import { untimedDayKey } from "@/lib/untimed";
+import type { Diagnosis, FindingAction, ScheduledBlock, ScheduleProposal, Todo } from "@/lib/types";
 
 dayjs.extend(isoWeek);
 
@@ -64,7 +66,9 @@ const STACKED_MIN_PX = 38;
  */
 const BLOCK_GAP_PX = 3;
 const OPEN_AT_HOUR = 6;
-const HEADER_H = 46;
+// Owned by DayColumnHeader — the peek and the hour gutter both offset by it, so
+// a second definition here is a guaranteed way to misalign them.
+const HEADER_H = DAY_HEADER_H;
 /** Must match the track's CSS transition below. */
 const SWIPE_SETTLE_MS = 200;
 const SNAP = 15;
@@ -217,8 +221,15 @@ function CalendarInner() {
       : `${warningCount} warning${warningCount === 1 ? "" : "s"}`;
   const [enriching, setEnriching] = useState(false);
 
-  // In day view the single column header just repeats the title, so drop it.
-  const headerH = view === "day" ? 0 : HEADER_H;
+  /**
+   * Every column gets a header, day view included.
+   *
+   * It used to be dropped there on the grounds that it repeated the title in
+   * the toolbar — but the header is also where a column says what it's *not*
+   * showing, and the day view is exactly where you'd expect to be told. The
+   * duplication is a small price for one consistent place to look.
+   */
+  const headerH = HEADER_H;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   // Wait a frame so the grid has laid out — scrolling before that gets clamped
@@ -440,6 +451,41 @@ function CalendarInner() {
   }
 
   const blocksForDay = (day: Dayjs) => blocks.filter((b) => b.start.isSame(day, "day"));
+
+  /**
+   * Tasks the planner has placed on the calendar under their own event row.
+   *
+   * They carry no time themselves, so they'd otherwise read as "untimed" and be
+   * nudged about — while sitting visibly on the grid two inches below.
+   */
+  const plannedTaskIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const e of events) {
+      if (e.bearaiTaskId && !e.deletedAt) ids.add(e.bearaiTaskId);
+    }
+    return ids;
+  }, [events]);
+
+  /**
+   * What each day is hiding.
+   *
+   * The grid can only draw something with both a start and an end, so a task
+   * due Thursday with no hour on it is simply absent — which quietly
+   * misrepresents how full Thursday is. Computed once for the whole visible
+   * range rather than per column, since it's a scan over every task.
+   */
+  const untimedByDay = useMemo(() => {
+    const m = new Map<string, Todo[]>();
+    for (const t of todos) {
+      if (plannedTaskIds.has(t.id)) continue;
+      const key = untimedDayKey(t);
+      if (!key) continue;
+      const list = m.get(key);
+      if (list) list.push(t);
+      else m.set(key, [t]);
+    }
+    return m;
+  }, [todos, plannedTaskIds]);
 
   /**
    * What tapping a block opens.
@@ -871,16 +917,13 @@ function CalendarInner() {
     stackedMinPx: STACKED_MIN_PX,
     hours,
     hourPx: HOUR_PX,
-    headerH,
-    showHeader: view === "week",
+    showHeader: view !== "month",
+    untimedForDay: (day: Dayjs) => untimedByDay.get(day.format("YYYY-MM-DD")) ?? [],
     colMinWidth,
     gridHeight,
     today: now,
     borderColor: SURFACE.borderSoft,
-    bg: SURFACE.bg,
     textPrimary: TEXT.primary,
-    textTertiary: TEXT.tertiary,
-    todayBg: SUNSET,
     tiny: tinyBlocks,
   };
 
@@ -1161,43 +1204,13 @@ function CalendarInner() {
                   borderRight: `1px solid ${SURFACE.borderSoft}`,
                 }}
               >
-                {view === "week" && (
-                  <div
-                    style={{
-                      height: HEADER_H,
-                      position: "sticky",
-                      top: 0,
-                      zIndex: 3,
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 1,
-                      borderBottom: `1px solid ${SURFACE.borderSoft}`,
-                      background: SURFACE.bg,
-                    }}
-                  >
-                    <span style={{ fontSize: 10.5, color: TEXT.tertiary, letterSpacing: 0.4 }}>
-                      {day.format("ddd").toUpperCase()}
-                    </span>
-                    <span
-                      style={{
-                        display: "grid",
-                        placeItems: "center",
-                        minWidth: 24,
-                        height: 22,
-                        padding: "0 6px",
-                        borderRadius: 999,
-                        fontSize: 13.5,
-                        fontWeight: 700,
-                        color: isToday ? "#fff" : TEXT.primary,
-                        background: isToday ? SUNSET : "transparent",
-                      }}
-                    >
-                      {day.format("D")}
-                    </span>
-                  </div>
-                )}
+                <DayColumnHeader
+                  day={day}
+                  isToday={isToday}
+                  untimed={untimedByDay.get(day.format("YYYY-MM-DD")) ?? []}
+                  onOpenTask={openEditTask}
+                  compact={tinyBlocks}
+                />
 
                 <div
                   onMouseDown={(e) => onColumnMouseDown(e, day)}

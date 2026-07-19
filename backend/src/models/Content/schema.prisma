@@ -97,7 +97,12 @@ model Todo {
   energyDemand      EnergyLevel @default(medium)
   /// How much you want to do this (vs. how hard it is). Cleartext metadata.
   desire            Desire      @default(neutral)
-  chunkable         Boolean @default(false)
+  /// Whether the planner may split this across several sittings.
+  /// Nullable on purpose: null means "nobody has decided", which is different
+  /// from an explicit no. Unset falls back to a duration rule (see
+  /// lib/scheduler/chunking.ts) so a 15-hour task splits without being told to,
+  /// while a deliberate "keep this in one piece" is still honoured.
+  chunkable         Boolean?
   minChunk          Int?    /// minutes
   maxChunk          Int?    /// minutes
   recurrenceRule    String? /// RFC 5545 RRULE
