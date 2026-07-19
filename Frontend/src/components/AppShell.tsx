@@ -34,6 +34,7 @@ import { useCapture } from "@/store/capture";
 import { useIsOffline, watchConnectivity } from "@/store/network";
 import { dismissOverlays, hasOpenOverlay, shortcutFor } from "@/lib/shortcuts";
 import { fitPopups } from "@/lib/popoverFit";
+import { createDefaultsNow } from "@/lib/createContext";
 import { SyncBadge } from "./SyncBadge";
 import { SidebarLists } from "./SidebarLists";
 import { TaskDetail } from "./TaskDetail";
@@ -630,7 +631,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
           {/* On mobile the create action lives in the bottom-nav FAB. */}
           {!isMobile && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreateTask()}>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              // Same rule as the mobile FAB: creating while looking at a list
+              // puts the task in that list.
+              onClick={() => openCreateTask(createDefaultsNow(pathname))}
+            >
               New task
             </Button>
           )}

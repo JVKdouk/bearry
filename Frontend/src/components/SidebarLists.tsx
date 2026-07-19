@@ -45,7 +45,11 @@ function Row({
         border: "none",
         background: active ? "rgba(168,85,247,0.14)" : "transparent",
         color: active ? "#d9b8ff" : "#c9c9d6",
-        padding: "7px 10px",
+        // Room for the settings gear, which is positioned over this row.
+        // Hiding the count on hover instead was wrong on touch: there is no
+        // hover there, so the gear stayed visible and the number sat under it
+        // permanently. Reserving the space works for every input type.
+        padding: onSettings ? "7px 32px 7px 10px" : "7px 10px",
         borderRadius: 9,
         cursor: "pointer",
         fontSize: 13.5,
@@ -61,10 +65,6 @@ function Row({
       </span>
       {count ? (
         <span
-          // Both this and the settings gear live at the right edge, and the
-          // gear is positioned over the row — so the number was rendering
-          // underneath it. It yields while the gear is visible.
-          className={onSettings ? "side-row-count" : undefined}
           style={{ fontSize: 12, color: active ? "#d9b8ff" : "#6f6f80", fontVariantNumeric: "tabular-nums" }}
         >
           {count}

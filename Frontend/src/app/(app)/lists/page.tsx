@@ -6,7 +6,6 @@ import { Button, Empty, Segmented, Tooltip } from "antd";
 import {
   AppstoreOutlined,
   BarsOutlined,
-  CheckCircleOutlined,
   FieldTimeOutlined,
   PlusOutlined,
 } from "@ant-design/icons";
@@ -15,6 +14,7 @@ import { TaskCard } from "@/components/TaskCard";
 import { Pill } from "@/components/Pill";
 import { useCollection } from "@/store/hooks";
 import { useSync } from "@/store/sync";
+import { TEXT } from "@/lib/theme";
 import { useUI, type ListView } from "@/store/ui";
 import { PRIORITY_COLOR, PRIORITY_LABEL } from "@/lib/format";
 import type { Block, TodoStatus } from "@/lib/types";
@@ -126,24 +126,28 @@ function ListsInner() {
       ) : view === "timeline" ? (
         <TimelineView todos={scoped} />
       ) : (
-        <ListLayout todos={scoped} onAdd={addTask} />
+        <ListLayout todos={scoped} />
       )}
     </div>
   );
 }
 
-function ListLayout({ todos, onAdd }: { todos: Block[]; onAdd: () => void }) {
+function ListLayout({ todos }: { todos: Block[] }) {
   const open = todos
     .filter((t) => t.status !== "done")
     .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || (a.deadline ?? "~").localeCompare(b.deadline ?? "~"));
   if (open.length === 0) {
+    // One line, no illustration, no second button.
+    //
+    // The previous empty state was a 48px icon, a caption and an "Add a task"
+    // button — directly under a header that already had "New task" in it. Two
+    // buttons doing the same thing is a decision the user has to make for no
+    // reason, and the whole arrangement pushed an empty list to fill a phone
+    // screen with nothing.
     return (
-      <Empty
-        image={<CheckCircleOutlined style={{ fontSize: 48, color: "#2f2f3d" }} />}
-        description={<span style={{ color: "#7c7c8a" }}>Nothing here yet</span>}
-      >
-        <Button type="primary" onClick={onAdd}>Add a task</Button>
-      </Empty>
+      <p style={{ color: TEXT.tertiary, fontSize: 13.5, margin: "18px 2px 0" }}>
+        Nothing here yet.
+      </p>
     );
   }
   return (

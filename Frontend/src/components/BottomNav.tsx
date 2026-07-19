@@ -10,6 +10,7 @@ import {
 } from "@ant-design/icons";
 import { useUI } from "@/store/ui";
 import { useCapture } from "@/store/capture";
+import { createDefaultsNow } from "@/lib/createContext";
 
 const LEFT = [
   { key: "/today", icon: <SunOutlined />, label: "Today" },
@@ -52,7 +53,11 @@ export function BottomNav() {
       <button
         aria-label="New task"
         className="bottom-nav-fab"
-        onClick={() => openCreateTask()}
+        // Creating from a list puts the task in that list. Reaching for the
+        // nav's + instead of the page's used to mean the difference between
+        // "in Personal" and "in nothing", which is not a distinction the two
+        // buttons look like they make.
+        onClick={() => openCreateTask(createDefaultsNow(pathname))}
       >
         <PlusOutlined />
       </button>

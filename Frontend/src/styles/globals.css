@@ -584,13 +584,6 @@ a {
   }
 }
 
-/* The count and the settings gear occupy the same corner of a sidebar row.
-   The gear is positioned over the row, so without this the number showed
-   through underneath it. */
-.side-row-wrap:hover .side-row-count,
-.side-row-wrap:focus-within .side-row-count {
-  opacity: 0;
-}
-.side-row-count {
-  transition: opacity 0.12s;
-}
+/* The count no longer needs to hide: rows with a gear reserve space for it in
+   their own padding. Hiding on hover was wrong on touch, where there is no
+   hover — the gear stayed visible and the number sat underneath it. */
