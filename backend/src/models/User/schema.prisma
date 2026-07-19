@@ -21,8 +21,7 @@ model User {
 
   sessions Session[]
   projects Project[]
-  todos    Todo[]
-  notes    Note[]
+  blocks   Block[]
 
   @@map("users")
 }

@@ -5,62 +5,6 @@
 /// decryption round-trip (§5.2).
 /// ─────────────────────────────────────────────────────────────────────────
 
-enum EventSource {
-  google
-  bearai
-}
-
-/// A calendar event. Google events render as fixed/protected by default; BearAI
-/// blocks are the scheduler's output, tagged with `bearaiTaskId`.
-model CalendarEvent {
-  id          String      @id @default(cuid())
-  userId      String
-  source      EventSource
-  externalId  String?     /// Google event id (for idempotent two-way sync, §6.4)
-  title       String      /// (enc)
-  description String?     /// (enc)
-  location    String?     /// (enc)
-
-  start  DateTime
-  end    DateTime
-  /// Protected/immovable commitment (§9.3) — the scheduler must never move it.
-  isFixed Boolean @default(false)
-
-  /// RFC 5545 RRULE for imported repeating events, so a weekly stand-up comes
-  /// in as one recurring commitment rather than N copies. Cleartext metadata —
-  /// the solver reads it without a decryption round-trip (§9.7).
-  recurrenceRule String?
-
-  /// Fields the user has edited by hand on an IMPORTED event, which the
-  /// importer must therefore stop overwriting. Comma-separated field names
-  /// ("title,description"); cleartext, since it names fields rather than
-  /// holding content.
-  ///
-  /// Without this, editing an imported event is a lie: the change saves, looks
-  /// applied, and is silently reverted on the next sync. Recording the intent
-  /// is what makes the edit real — the source calendar still owns everything
-  /// the user hasn't touched.
-  pinnedFields String?
-
-  /// Set on BearAI-scheduled blocks: the todo this block is doing.
-  bearaiTaskId String?
-  /// The solver's plain-language reason for this placement (§9.6). Cleartext —
-  /// it's template-filled from the decision trace, not sensitive content.
-  scheduleReason String?
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  version   Int       @default(1)
-  deletedAt DateTime?
-
-  @@index([userId, start])
-  @@index([userId, source, externalId])
-  @@index([bearaiTaskId])
-  // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
-  @@index([userId, updatedAt])
-  @@map("calendar_events")
-}
-
 enum TimeBlockType {
   focus
   personal

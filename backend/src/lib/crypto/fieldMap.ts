@@ -10,10 +10,19 @@
 
 export const ENCRYPTED_FIELDS: Record<string, readonly string[]> = {
   Project: ["name"],
-  Todo: ["title", "notes"],
-  Note: ["title", "bodyMarkdown"],
+  /**
+   * Tasks, events and notes are one model now. The three old entries
+   * (`Todo: [title, notes]`, `CalendarEvent: [title, description, location]`,
+   * `Note: [title, bodyMarkdown]`) named the same three kinds of content under
+   * six different field names.
+   *
+   * Rows migrated from those tables were sealed under the old model names —
+   * the AAD binds `userId:Model:field` — and were re-sealed as `Block` by
+   * scripts/reseal-blocks.ts. Nothing here reads the old names, so a row that
+   * somehow escaped that pass fails loudly rather than decoding to garbage.
+   */
+  Block: ["title", "body", "location"],
   TaskStep: ["text"],
-  CalendarEvent: ["title", "description", "location"],
   TimeBlock: ["label"],
   BlockRegion: ["label"],
   CaptureItem: ["rawContent", "extractedFields"],

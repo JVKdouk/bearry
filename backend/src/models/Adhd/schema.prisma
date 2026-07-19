@@ -9,7 +9,7 @@
 model FocusSession {
   id              String    @id @default(cuid())
   userId          String
-  todoId          String?
+  blockId         String?
   startedAt       DateTime  @default(now())
   endedAt         DateTime?
   plannedDuration Int?      /// minutes
@@ -162,7 +162,7 @@ model Template {
 model TimeLog {
   id                String   @id @default(cuid())
   userId            String
-  todoId            String
+  blockId           String
   estimatedDuration Int      /// minutes
   actualDuration    Int      /// minutes
   completedAt       DateTime @default(now())
@@ -170,6 +170,6 @@ model TimeLog {
   version Int @default(1)
 
   @@index([userId])
-  @@index([todoId])
+  @@index([blockId])
   @@map("time_logs")
 }

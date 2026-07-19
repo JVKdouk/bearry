@@ -35,6 +35,33 @@ enum TodoStatus {
   done
 }
 
+/// What a block *is*, which is really a statement about two independent
+/// properties: whether you act on it, and whether it occupies time.
+///
+///   task  — actionable. May or may not be scheduled.
+///   event — occupies time, but there is nothing to do about it. It completes
+///           itself by happening.
+///   note  — neither. Reference material that belongs beside the work.
+///
+/// These were three tables, which meant "turn this note into a task" was a
+/// delete plus an insert plus repointing every step, link and reminder — and
+/// meant the Today screen had to merge two queries with different shapes and
+/// pretend the result was one list. They are one row now, and converting is a
+/// field assignment.
+enum BlockKind {
+  task
+  event
+  note
+}
+
+/// Where a block came from. `local` is anything the user made here; the rest
+/// are owned by an external calendar or task service and re-imported.
+enum BlockSource {
+  local
+  google
+  ticktick
+}
+
 /// Groups todos. `name` is encrypted; color/order/archived are cleartext.
 model Project {
   id       String  @id @default(cuid())
@@ -45,7 +72,7 @@ model Project {
   order    Float   @default(0)
   archived Boolean @default(false)
 
-  todos Todo[]
+  blocks Block[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -57,63 +84,102 @@ model Project {
   @@map("projects")
 }
 
-/// Nested (self-referential) todo. `title`/`notes` are encrypted; everything the
-/// scheduler needs (duration, deadline, priority, energyDemand, chunking,
-/// recurrence) is cleartext metadata (§5.2, §7.3).
-model Todo {
-  id           String  @id @default(cuid())
-  userId       String
-  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  projectId    String?
-  project      Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+/// One row for everything that lives on a board or a calendar.
+///
+/// `kind` decides behaviour, not the table: a task is actionable, an event
+/// occupies time without being actionable, a note is neither. Fields that only
+/// make sense for one kind are nullable rather than split into another table —
+/// the alternative was three models with three sync entities, three sets of
+/// controllers, and a conversion path that had to move foreign keys.
+///
+/// `title`/`body`/`location` are encrypted; everything the scheduler and the
+/// calendar query — times, priority, duration, recurrence — stays cleartext so
+/// busy-time queries and the solver run without a decryption round-trip
+/// (§5.2, §7.3, §9.7).
+model Block {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  kind BlockKind @default(task)
 
   /// Self-referential nesting (§7.2). UI caps depth ~4–5.
-  parentTodoId String?
-  parent       Todo?   @relation("TodoTree", fields: [parentTodoId], references: [id], onDelete: Cascade)
-  children     Todo[]  @relation("TodoTree")
+  parentId String?
+  parent   Block?  @relation("BlockTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children Block[] @relation("BlockTree")
 
   title String  /// (enc)
-  notes String? /// (enc) markdown
+  /// (enc) markdown. A task's notes, an event's description and a note's whole
+  /// body were three differently-named columns holding the same thing.
+  body  String?
+  /// (enc) events only.
+  location String?
 
+  /// Only meaningful for tasks. An event completes by happening and a note is
+  /// never done, so both simply leave this at its default.
   status   TodoStatus @default(todo)
   priority Priority   @default(medium)
   deadline DateTime?
 
-  /// A task with a start+end is a *timed* item — an "event". There's no separate
-  /// event model: the frontend renders a todo with startTime/endTime as a
-  /// calendar block, and the scheduler treats it as an immovable commitment.
-  /// Cleartext metadata (like start/end on external events) so busy-time queries
-  /// and the solver run without a decryption round-trip.
+  /// A block with a start and an end occupies time and draws on the calendar.
+  /// Required in practice for events; optional for tasks, which may be
+  /// scheduled or not.
   startTime DateTime?
   endTime   DateTime?
 
-  /// Life area for time blocking (§8.4). Matched against BlockRegion.category so
-  /// the scheduler places this task in matching regions. Cleartext metadata.
+  /// Life area for time blocking (§8.4), matched against BlockRegion.category.
   category LifeArea?
 
-  /// minutes; optional with a gentle default so a task is never blocked on an
-  /// estimate (§7.3).
-  estimatedDuration Int     @default(30)
+  /// minutes; a gentle default so a task is never blocked on an estimate (§7.3).
+  estimatedDuration Int         @default(30)
   energyDemand      EnergyLevel @default(medium)
-  /// How much you want to do this (vs. how hard it is). Cleartext metadata.
+  /// How much you want to do this, as opposed to how hard it is.
   desire            Desire      @default(neutral)
-  /// Whether the planner may split this across several sittings.
-  /// Nullable on purpose: null means "nobody has decided", which is different
-  /// from an explicit no. Unset falls back to a duration rule (see
-  /// lib/scheduler/chunking.ts) so a 15-hour task splits without being told to,
-  /// while a deliberate "keep this in one piece" is still honoured.
+  /// Whether the planner may split this across several sittings. Nullable on
+  /// purpose: null means nobody has decided, which is different from an
+  /// explicit no, and unset falls back to a duration rule (chunking.ts).
   chunkable         Boolean?
   minChunk          Int?    /// minutes
   maxChunk          Int?    /// minutes
   recurrenceRule    String? /// RFC 5545 RRULE
 
   /// "mornings only" style hints, JSON-encoded window descriptors (cleartext).
-  preferredWindows  String?
+  preferredWindows String?
 
   /// Timestamp a stale task was gently let go without guilt (§1.4 p2). Recoverable.
   letGoAt DateTime?
 
   order Float @default(0)
+
+  // ── externally-owned blocks ────────────────────────────────────────────
+  source     BlockSource @default(local)
+  /// Provider id, for idempotent re-import (§6.4).
+  externalId String?
+  /// Fields the user has edited by hand on an IMPORTED block, which the
+  /// importer must therefore stop overwriting. Comma-separated field names.
+  /// Without it, editing an imported event is a lie: the change saves, looks
+  /// applied, and is silently reverted on the next sync.
+  pinnedFields String?
+
+  // ── planner output ─────────────────────────────────────────────────────
+  /// An immovable commitment the scheduler must never move (§9.3).
+  isFixed Boolean @default(false)
+  /// Set on planner-placed blocks: the task this block is doing time for.
+  planForId String?
+  planFor   Block?  @relation("BlockPlan", fields: [planForId], references: [id], onDelete: Cascade)
+  planBlocks Block[] @relation("BlockPlan")
+  /// The solver's plain-language reason for this placement (§9.6). Cleartext —
+  /// template-filled from the decision trace, not user content.
+  scheduleReason String?
+
+  /// Which model name this row's ciphertext was sealed under, while it still
+  /// differs from "Block". The AAD binds userId:Model:field, so rows carried
+  /// over from todos/calendar_events/notes cannot be opened as "Block" until
+  /// they have been re-sealed. The re-encryption pass clears this, and the
+  /// column is dropped once every row reads null.
+  legacyAadModel String?
 
   steps TaskStep[]
 
@@ -123,30 +189,16 @@ model Todo {
   deletedAt DateTime?
 
   @@index([projectId])
-  @@index([parentTodoId])
-  @@index([userId, status])
-  @@index([userId, deadline])
+  @@index([parentId])
+  @@index([userId, kind, status])
+  @@index([userId, kind, deadline])
+  /// Calendar range queries: everything drawable in a window.
+  @@index([userId, startTime])
+  @@index([userId, source, externalId])
+  @@index([planForId])
   // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
   @@index([userId, updatedAt])
-  @@map("todos")
-}
-
-/// Markdown note with bidirectional links (§8.7). Body + title encrypted.
-model Note {
-  id           String  @id @default(cuid())
-  userId       String
-  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title        String  /// (enc)
-  bodyMarkdown String  /// (enc)
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  version   Int       @default(1)
-  deletedAt DateTime?
-
-  // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
-  @@index([userId, updatedAt])
-  @@map("notes")
+  @@map("blocks")
 }
 
 /// A break-it-down sub-step for task initiation (§8.11). `text` encrypted;
@@ -154,8 +206,8 @@ model Note {
 model TaskStep {
   id          String  @id @default(cuid())
   userId      String
-  todoId      String
-  todo        Todo    @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  blockId     String
+  block       Block   @relation(fields: [blockId], references: [id], onDelete: Cascade)
   text        String  /// (enc)
   order       Float   @default(0)
   isFirstStep Boolean @default(false)
@@ -166,16 +218,17 @@ model TaskStep {
   version   Int       @default(1)
   deletedAt DateTime?
 
-  @@index([todoId])
+  @@index([blockId])
   // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
   @@index([userId, updatedAt])
   @@map("task_steps")
 }
 
+/// What a link can point at. The three content kinds collapsed into `block`
+/// when the tables did — a link to "the todo" and a link to "the event" were
+/// always the same edge with a different label.
 enum LinkFromType {
-  todo
-  note
-  event
+  block
   capture
 }
 
