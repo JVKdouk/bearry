@@ -1,64 +1,110 @@
-# BearAI — ADHD-first productivity assistant
+# Bearry — an ADHD-first task manager
 
-Standalone mobile app + breach-contained backend, implemented **through Phase 5**
-of the technical spec (`BearAI_Mobile_Spec.md`): security foundation, data model &
-sync, capture inbox, calendar & energy model, and the algorithmic auto-scheduler.
+A planner that assumes the hard part isn't listing what to do, it's starting.
+The scheduler is deterministic and explains every placement in plain language;
+the app works fully offline; and sensitive content is encrypted per-field under
+per-user keys so a database breach yields ciphertext.
 
 ```
-backend/   Fastify + Prisma + PostgreSQL — encrypted, breach-contained API
-mobile/    Expo + React Native — dark-first, standalone client
+backend/    Fastify + Prisma + PostgreSQL — encrypted, breach-contained API
+Frontend/   Next.js 15 + Ant Design — dark-first offline PWA
 ```
 
-## What's implemented (Phases 1–5)
+## What's here
 
-| Phase | Area | Status |
-|---|---|---|
-| 1 | Field crypto (AES-256-GCM), KEK/DEK envelope + rotation, active-only key cache, scrypt auth + sessions, decrypt audit log, rate limiter, break-glass | ✅ built & verified |
-| 2 | Full Prisma schema (encrypted/cleartext split), transparent field-crypto layer, server-authoritative delta sync (pull/push, LWW) | ✅ built |
-| 3 | Capture pipeline (Stage-1 algorithmic classifier: type detection, chrono date parsing, project suggestion), inbox triage (accept/dismiss), projects, nested todos, notes, backlinks | ✅ built & verified |
-| 4 | Calendar events + time blocks, energy windows (+ defaults), schedule profiles, Google OAuth token store (encrypted under DEK) | ✅ built |
-| 5 | Algorithmic auto-scheduler — energy/capacity-aware placement, chunking, hard/soft constraints, plain-language explanations, one-tap undo | ✅ built & verified |
+**Capture and triage.** Anything typed goes to an inbox and is classified
+algorithmically — type, dates via chrono, project suggestion — with no model
+call. Triage shows what it inferred and lets you change it before filing.
 
-Later phases (ADHD "doing" layer, templates/reminders, quick-entry surfaces,
-summary emails, AI enhancement, hardening/launch — Phases 6–10) are **not** built.
+**A deterministic scheduler.** Constraint solving over energy windows, protected
+regions, task dependencies and a personal rhythm profile (session length, break
+frequency, weekend flexibility, how hard you find starting versus stopping). It
+proposes; you accept. Every block carries a reason, and there's one-tap undo.
+No AI is involved in deciding when you work.
 
-## Security model (breach containment, not zero-knowledge)
+**Offline-first.** Reads come from a local IndexedDB store and writes go to an
+outbox flushed in bulk. Server-authoritative delta sync with last-writer-wins,
+tombstones for deletes, and a re-bootstrap protocol for clients that have been
+away longer than tombstone retention.
+
+**Integrations.** A plugin registry where every provider emits validated
+canonical blocks and the platform does all persistence. Google Calendar, Google
+Tasks, TickTick and ICS feeds today. Outbound requests go through an
+SSRF-guarded fetch.
+
+**Recurrence.** A focused RFC 5545 RRULE subset, hand-written and exhaustively
+tested. Rules outside the subset are refused rather than half-understood.
+
+**AI, strictly optional.** Duration/energy estimates, step suggestions, and
+digest phrasing. Every one has a heuristic fallback, all are consent-gated, and
+none can schedule anything.
+
+## Security model
+
+Breach containment, not zero-knowledge. Full detail in [SECURITY.md](SECURITY.md).
 
 - Sensitive fields (task titles, note bodies, event titles, OAuth tokens) are
-  AES-256-GCM ciphertext under a **per-user DEK**; structural metadata
+  AES-256-GCM ciphertext under a **per-user DEK**. Structural metadata
   (durations, deadlines, priorities, times) stays cleartext so the scheduler
-  queries it without decrypting.
+  queries it without decrypting anything.
 - Per-user DEKs are wrapped by a **root KEK** held only in process memory,
-  loaded off-DB, splittable into two shares. Rotating it re-wraps DEKs (cheap).
-- DEKs are unwrapped at login and cached **active-only** (short TTL). Every cold
-  unwrap / batch decrypt is **rate-limited + audit-logged**; **break-glass**
-  flushes keys and rotates the KEK to halt all decryption.
-- A DB-only breach yields ciphertext with no keys. A full takeover gets active
-  users only, throttled and logged — contained, not catastrophic (§5, §12).
+  loaded off-DB, splittable into two shares. Rotating it re-wraps DEKs, which is
+  O(users) and cheap enough to do on suspicion.
+- DEKs are unwrapped at login and cached **active-only**. Every cold unwrap and
+  batch decrypt is rate-limited and audit-logged; the limiter caps *distinct
+  users* per actor, so a takeover sweeping the user base trips it rather than
+  completing.
+- **Break-glass** (`yarn tsx scripts/break-glass.ts --confirm`) flushes every
+  warm key and rotates the KEK.
 
-## Run it
+A database-only breach yields ciphertext with no keys. A full takeover reaches
+active users only, throttled and logged.
 
-**Backend** (needs PostgreSQL running):
+## Running it
+
+**Backend** (needs PostgreSQL):
+
 ```bash
 cd backend
 yarn install
-# .env already has ROOT_KEK/JWT_SECRET for dev; DB is `bearry`
 createdb bearry || psql -U postgres -c 'CREATE DATABASE bearry;'
-yarn prisma migrate deploy      # or: yarn prisma migrate dev
+yarn prisma migrate deploy
 yarn dev                        # http://localhost:10003
-
-# Verify the pure-logic cores:
-yarn tsx scripts/verify-crypto.ts
-yarn tsx scripts/verify-classifier.ts
-yarn tsx scripts/verify-scheduler.ts
 ```
 
-**Mobile**:
+`.env.example` lists every variable. `ROOT_KEK` and `JWT_SECRET` are required —
+the server refuses to boot without them rather than starting in a state where it
+cannot decrypt.
+
+**Frontend:**
+
 ```bash
-cd mobile
+cd Frontend
 npm install
-# Point at your backend if not localhost:
-EXPO_PUBLIC_API_BASE=http://<your-ip>:10003 npm start
+npm run dev                     # http://localhost:20002
 ```
 
-See `backend/README.md` for the API surface and architecture notes.
+Signups are **closed by default**; set `SIGNUPS_OPEN=true` to open registration
+(including for local test accounts).
+
+## Tests
+
+Node's built-in runner, no framework:
+
+```bash
+cd backend  && yarn test
+cd Frontend && npm test
+```
+
+The pure-logic cores also have standalone verifiers under `backend/scripts/`
+(`verify-crypto`, `verify-classifier`, `verify-scheduler`, `verify-ssrf`,
+`verify-plugins`).
+
+CI runs typecheck, lint, tests and build for both projects on **Node 20**,
+matching production — see [CONTRIBUTING.md](CONTRIBUTING.md) for why that
+version pin is load-bearing.
+
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) documents the conventions here alongside the
+specific failures that motivated each one.

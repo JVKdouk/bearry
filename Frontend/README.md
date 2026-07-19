@@ -1,8 +1,8 @@
 # Bearry — Frontend (PWA)
 
 A desktop-first, installable **PWA** for the Bearry ADHD productivity assistant,
-built with **Next.js (App Router) + Ant Design (dark theme)**. It replaces the
-old Expo/React-Native mobile app and talks to the existing Fastify backend.
+built with **Next.js (App Router) + Ant Design (dark theme)**, talking to the
+Fastify backend.
 
 ## Stack
 
@@ -11,6 +11,11 @@ old Expo/React-Native mobile app and talks to the existing Fastify backend.
   "Kona" palette (`src/lib/theme.ts`)
 - **Zustand** — offline-first sync store
 - **dayjs** — dates
+- **IndexedDB** — the offline store; reads never touch the network and writes
+  queue in an outbox flushed in bulk
+- `src/lib/recurrence/rrule.ts` is a **byte-identical mirror** of the backend's
+  engine, so the calendar can expand repeats offline. Edit the backend copy and
+  run `npm run sync:rrule` there; a test fails the build on drift.
 - PWA: `public/manifest.webmanifest` + app-shell service worker (`public/sw.js`,
   registered in production only)
 
