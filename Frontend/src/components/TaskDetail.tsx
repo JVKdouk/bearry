@@ -5,7 +5,6 @@ import {
   App as AntdApp,
   Button,
   Checkbox,
-  DatePicker,
   Drawer,
   Input,
   InputNumber,
@@ -13,7 +12,6 @@ import {
   Popover,
   Segmented,
   Select,
-  TimePicker,
   Tooltip,
 } from "antd";
 import {
@@ -28,7 +26,6 @@ import {
   MoreOutlined,
   NodeIndexOutlined,
   PlusOutlined,
-  RetweetOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
@@ -38,7 +35,8 @@ import { useSync } from "@/store/sync";
 import { useIsOffline } from "@/store/network";
 import { useCollection, useRecord } from "@/store/hooks";
 import { LIFE_AREAS, PRIORITY_COLOR, durationLabel } from "@/lib/format";
-import { repeatOptions, describeRepeat } from "@/lib/recurrence";
+import { describeRepeat } from "@/lib/recurrence";
+import { SchedulePopover, type ScheduleValue } from "@/components/SchedulePopover";
 import { SURFACE } from "@/lib/theme";
 import type { Priority, Todo } from "@/lib/types";
 
@@ -97,6 +95,8 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   const [enriching, setEnriching] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [newStep, setNewStep] = useState("");
+  // Controlled so "Done" can close it; an uncontrolled Popover has no such hook.
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   /**
    * Dependencies (§7.4). Stored as Link rows with `linkType: "blocks"`, where
@@ -311,91 +311,44 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   const priority = (v.priority ?? "medium") as Priority;
   const canCreate = !!(draft.title ?? "").trim();
 
+  /**
+   * One handler for every scheduling field, because they're interdependent:
+   * changing the date has to rewrite start/end when a time is set, and clearing
+   * the date has to drop the repeat rule with it.
+   */
+  function applySchedule(next: Partial<ScheduleValue>) {
+    const d = next.date !== undefined ? next.date : date;
+    const t = next.time !== undefined ? next.time : time;
+    const dur = next.duration !== undefined ? next.duration : duration;
+
+    if (next.date !== undefined) setDate(d);
+    if (next.time !== undefined) setTime(t);
+    if (next.duration !== undefined) setDuration(dur);
+
+    patch({
+      ...schedulePatch(d, t, dur),
+      ...(next.recurrenceRule !== undefined ? { recurrenceRule: next.recurrenceRule } : {}),
+    });
+  }
+
   const datePill = (
     <Popover
       trigger="click"
       placement="bottomLeft"
+      open={scheduleOpen}
+      onOpenChange={setScheduleOpen}
       content={
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, width: 240 }}>
-          <DatePicker
-            value={date}
-            onChange={(d) => {
-              setDate(d);
-              patch(schedulePatch(d, time, duration));
-            }}
-            format="ddd, MMM D, YYYY"
-            style={{ width: "100%" }}
-          />
-          <TimePicker
-            needConfirm={false}
-            value={time}
-            onChange={(t) => {
-              setTime(t);
-              patch(schedulePatch(date, t, duration));
-            }}
-            format="HH:mm"
-            minuteStep={5}
-            placeholder="Add a time"
-            style={{ width: "100%" }}
-          />
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 12, color: "#a9a9b8" }}>Duration</span>
-            <InputNumber
-              size="small"
-              min={5}
-              max={600}
-              step={5}
-              value={duration}
-              onChange={(n) => {
-                const val = n ?? 30;
-                setDuration(val);
-                patch(schedulePatch(date, time, val));
-              }}
-              style={{ width: 90 }}
-            />
-            <span style={{ fontSize: 12, color: "#7c7c8a" }}>min</span>
-          </div>
-          {/* Repeat only means something once there's a date to repeat FROM, so
-              it appears with one rather than offering a rule with no anchor. */}
-          {date && (
-            <div>
-              <div style={{ fontSize: 12, color: "#a9a9b8", marginBottom: 4 }}>
-                <RetweetOutlined /> Repeat
-              </div>
-              <Select
-                size="small"
-                style={{ width: "100%" }}
-                value={v.recurrenceRule ?? null}
-                onChange={(rule) => patch({ recurrenceRule: rule })}
-                options={repeatOptions(date.day()).map((o) => ({
-                  label: o.label,
-                  value: o.rule,
-                }))}
-              />
-              {v.recurrenceRule && (
-                <div style={{ fontSize: 11.5, color: "#6f6f80", marginTop: 5 }}>
-                  Completing it moves it to the next occurrence.
-                </div>
-              )}
-            </div>
-          )}
-
-          {(date || time) && (
-            <Button
-              size="small"
-              type="text"
-              danger
-              onClick={() => {
-                setDate(null);
-                setTime(null);
-                // A repeat rule with nothing to repeat from is dead config.
-                patch({ ...schedulePatch(null, null, duration), recurrenceRule: null });
-              }}
-            >
-              Clear date
-            </Button>
-          )}
-        </div>
+        <SchedulePopover
+          value={{ date, time, duration, recurrenceRule: v.recurrenceRule ?? null }}
+          onChange={applySchedule}
+          onClear={() => {
+            setDate(null);
+            setTime(null);
+            // A repeat rule with nothing to repeat from is dead config.
+            patch({ ...schedulePatch(null, null, duration), recurrenceRule: null });
+          }}
+          onClose={() => setScheduleOpen(false)}
+        />
       }
     >
       <button className="meta-pill" style={metaPillStyle(!!date)}>
