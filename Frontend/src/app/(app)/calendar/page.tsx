@@ -33,6 +33,15 @@ import { useIsOffline } from "@/store/network";
 import { durationLabel, LIFE_AREA_COLOR } from "@/lib/format";
 import { ACCENT, SUNSET, SURFACE, TEXT, WARM } from "@/lib/theme";
 import { expandRange } from "@/lib/recurrence";
+import { CalendarPeek } from "@/components/CalendarPeek";
+import {
+  pinchDistance,
+  pinchView,
+  releaseOutcome,
+  shouldClaim,
+  trackOffset,
+  type ScaleView,
+} from "@/lib/swipe";
 import type { Diagnosis, FindingAction, ScheduledBlock, ScheduleProposal } from "@/lib/types";
 
 dayjs.extend(isoWeek);
@@ -44,7 +53,34 @@ const MIN_BLOCK_PX = 22;
 const STACKED_MIN_PX = 38;
 const OPEN_AT_HOUR = 6;
 const HEADER_H = 46;
+/** Must match the track's CSS transition below. */
+const SWIPE_SETTLE_MS = 200;
 const SNAP = 15;
+
+/** The days a view shows for a given anchor. */
+function daysFor(view: View, anchor: Dayjs): Dayjs[] {
+  if (view === "day") return [anchor.startOf("day")];
+  if (view === "3day")
+    return Array.from({ length: 3 }, (_, i) => anchor.startOf("day").add(i, "day"));
+  if (view === "month") {
+    // Pad to whole weeks so the grid is rectangular and weekday columns line
+    // up; the out-of-month days are rendered dimmed rather than blank.
+    const first = anchor.startOf("month").startOf("isoWeek");
+    const last = anchor.endOf("month").endOf("isoWeek");
+    const n = last.diff(first, "day") + 1;
+    return Array.from({ length: n }, (_, i) => first.add(i, "day"));
+  }
+  const start = anchor.startOf("isoWeek");
+  return Array.from({ length: 7 }, (_, i) => start.add(i, "day"));
+}
+
+/** One period forward or back, in whatever unit the current view counts in. */
+function shiftAnchor(view: View, anchor: Dayjs, dir: 1 | -1): Dayjs {
+  if (view === "day") return anchor.add(dir, "day");
+  if (view === "3day") return anchor.add(dir * 3, "day");
+  if (view === "month") return anchor.add(dir, "month");
+  return anchor.add(dir, "week");
+}
 
 interface Block {
   /** Unique per rendered instance — a repeating event yields several. */
@@ -361,33 +397,13 @@ function CalendarInner() {
     return () => clearInterval(t);
   }, []);
 
-  const days = useMemo(() => {
-    if (view === "day") return [anchor.startOf("day")];
-    if (view === "3day")
-      return Array.from({ length: 3 }, (_, i) => anchor.startOf("day").add(i, "day"));
-    if (view === "month") {
-      // Pad to whole weeks so the grid is rectangular and weekday columns line
-      // up; the out-of-month days are rendered dimmed rather than blank.
-      const first = anchor.startOf("month").startOf("isoWeek");
-      const last = anchor.endOf("month").endOf("isoWeek");
-      const n = last.diff(first, "day") + 1;
-      return Array.from({ length: n }, (_, i) => first.add(i, "day"));
-    }
-    const start = anchor.startOf("isoWeek");
-    return Array.from({ length: 7 }, (_, i) => start.add(i, "day"));
-  }, [anchor, view]);
+  const days = useMemo(() => daysFor(view, anchor), [anchor, view]);
 
-  // How far prev/next jumps for the current view.
-  const step = (dir: 1 | -1) =>
-    setAnchor((a) =>
-      view === "day"
-        ? a.add(dir, "day")
-        : view === "3day"
-          ? a.add(dir * 3, "day")
-          : view === "month"
-            ? a.add(dir, "month")
-            : a.add(dir, "week"),
-    );
+  // The periods either side, so a swipe has something real to slide into view.
+  const prevDays = useMemo(() => daysFor(view, shiftAnchor(view, anchor, -1)), [anchor, view]);
+  const nextDays = useMemo(() => daysFor(view, shiftAnchor(view, anchor, 1)), [anchor, view]);
+
+  const step = (dir: 1 | -1) => setAnchor((a) => shiftAnchor(view, a, dir));
 
   const titleById = useMemo(() => {
     const m = new Map<string, string>();
@@ -473,7 +489,128 @@ function CalendarInner() {
   const colMinWidth = isNarrow ? 0 : view === "day" ? 0 : 100;
   const gutterW = isNarrow ? 40 : 58;
 
+  /**
+   * Swipe-to-navigate.
+   *
+   * `dx` is the live finger offset; `settling` runs the CSS transition that
+   * either completes the move or snaps back. The gesture is only *claimed*
+   * once it's clearly horizontal (see lib/swipe), because this grid also
+   * scrolls vertically — stealing a slightly-diagonal scroll makes the
+   * calendar feel like it's fighting you.
+   */
+  const [swipeDx, setSwipeDx] = useState(0);
+  const [settling, setSettling] = useState(false);
+  const swipeRef = useRef<{
+    x0: number;
+    y0: number;
+    t0: number;
+    claimed: boolean;
+    width: number;
+  } | null>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+
+  /** A live two-finger pinch, which changes how much time is on screen. */
+  const pinchRef = useRef<{ startDist: number; from: View } | null>(null);
+
+  function touchPoint(t: React.Touch) {
+    return { x: t.clientX, y: t.clientY };
+  }
+
+  function onTouchStart(e: React.TouchEvent) {
+    if (e.touches.length === 2) {
+      // A pinch cancels any swipe in progress — you meant one or the other.
+      swipeRef.current = null;
+      setSwipeDx(0);
+      pinchRef.current = {
+        startDist: pinchDistance(touchPoint(e.touches[0]), touchPoint(e.touches[1])),
+        from: view,
+      };
+      return;
+    }
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    swipeRef.current = {
+      x0: t.clientX,
+      y0: t.clientY,
+      t0: Date.now(),
+      claimed: false,
+      width: trackRef.current?.clientWidth ?? 0,
+    };
+    setSettling(false);
+  }
+
+  function onTouchMove(e: React.TouchEvent) {
+    const p = pinchRef.current;
+    if (p && e.touches.length === 2) {
+      const dist = pinchDistance(touchPoint(e.touches[0]), touchPoint(e.touches[1]));
+      const next = pinchView(p.from as ScaleView, p.startDist, dist);
+      if (next !== view) {
+        setView(next);
+        // Re-baseline so a continuing pinch can step another level rather than
+        // firing repeatedly off the same measurement.
+        pinchRef.current = { startDist: dist, from: next };
+      }
+      return;
+    }
+
+    const s = swipeRef.current;
+    if (!s) return;
+    const t = e.touches[0];
+    const dx = t.clientX - s.x0;
+    const dy = t.clientY - s.y0;
+
+    if (!s.claimed) {
+      if (!shouldClaim(dx, dy)) return;
+      s.claimed = true;
+    }
+    setSwipeDx(trackOffset(dx, s.width));
+  }
+
+  function onTouchEnd() {
+    pinchRef.current = null;
+    const s = swipeRef.current;
+    swipeRef.current = null;
+    if (!s?.claimed) return;
+
+    const outcome = releaseOutcome(swipeDx, s.width, Date.now() - s.t0);
+    setSettling(true);
+
+    if (outcome === 0) {
+      setSwipeDx(0);
+      return;
+    }
+
+    // Finish the travel to the neighbouring period, then swap the anchor and
+    // drop back to centre in the same frame. Resetting before the animation
+    // ends produces a visible jump backwards.
+    setSwipeDx(outcome === 1 ? -s.width : s.width);
+    window.setTimeout(() => {
+      setSettling(false);
+      setSwipeDx(0);
+      step(outcome === 1 ? 1 : -1);
+    }, SWIPE_SETTLE_MS);
+  }
+
   const blocksForDay = (day: Dayjs) => blocks.filter((b) => b.start.isSame(day, "day"));
+
+  /** Everything the peek needs to look like the grid without behaving like it. */
+  const peekProps = {
+    blocksForDay,
+    hours,
+    hourPx: HOUR_PX,
+    headerH,
+    showHeader: view === "week",
+    colMinWidth,
+    gridHeight,
+    today: now,
+    borderColor: SURFACE.borderSoft,
+    bg: SURFACE.bg,
+    textPrimary: TEXT.primary,
+    textTertiary: TEXT.tertiary,
+    todayBg: SUNSET,
+    tiny: tinyBlocks,
+  };
+
   const ghostsForDay = (day: Dayjs) =>
     (proposal?.blocks ?? []).filter((b) => dayjs(b.start).isSame(day, "day"));
   const minToPx = (min: number) => ((min - DAY_START * 60) / 60) * HOUR_PX;
@@ -1015,6 +1152,27 @@ function CalendarInner() {
       </div>
 
       {view === "month" ? (
+        // Month gets the same gesture surface, otherwise pinch is a one-way
+        // trip: you could zoom out to the month and then be stuck there.
+        // Only one branch is ever mounted, so they can share the ref.
+        <div
+          ref={trackRef}
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+            // No neighbouring month is rendered to peek at — twelve extra day
+            // cells for a glance isn't worth it — but the grid still tracks the
+            // finger so the gesture has feedback instead of jumping on release.
+            transform: `translateX(${swipeDx}px)`,
+            transition: settling ? `transform ${SWIPE_SETTLE_MS}ms ease-out` : "none",
+          }}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          onTouchCancel={onTouchEnd}
+        >
         <MonthGrid
           days={days}
           anchor={anchor}
@@ -1033,6 +1191,7 @@ function CalendarInner() {
           }
           onOpenTask={(id) => openEditTask(id)}
         />
+        </div>
       ) : (
       <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }}>
         <div style={{ display: "flex", minWidth: gridMinWidth }}>
@@ -1062,6 +1221,40 @@ function CalendarInner() {
             ))}
           </div>
 
+          {/* The swipe viewport. Only the day columns travel — the hour gutter
+              is a fixed reference and sliding it with them would be disorienting.
+              Neighbouring periods are rendered either side so the gesture reveals
+              real content rather than a blank panel that fills in on release. */}
+          <div
+            ref={trackRef}
+            style={{ flex: 1, overflow: "hidden", position: "relative" }}
+            onTouchStart={onTouchStart}
+            onTouchMove={onTouchMove}
+            onTouchEnd={onTouchEnd}
+            onTouchCancel={onTouchEnd}
+          >
+            <div
+              style={{
+                display: "flex",
+                transform: `translateX(${swipeDx}px)`,
+                transition: settling ? `transform ${SWIPE_SETTLE_MS}ms ease-out` : "none",
+                // Only pay for compositing while a gesture is actually in play.
+                willChange: swipeDx !== 0 ? "transform" : undefined,
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  right: "100%",
+                  top: 0,
+                  width: "100%",
+                  display: "flex",
+                }}
+              >
+                <CalendarPeek {...peekProps} days={prevDays} />
+              </div>
+
+              <div style={{ display: "flex", flex: 1, minWidth: 0 }}>
           {days.map((day) => {
             const isToday = day.isSame(now, "day");
             const dragActive = drag && drag.day.isSame(day, "day");
@@ -1467,6 +1660,21 @@ function CalendarInner() {
               </div>
             );
           })}
+              </div>
+
+              <div
+                style={{
+                  position: "absolute",
+                  left: "100%",
+                  top: 0,
+                  width: "100%",
+                  display: "flex",
+                }}
+              >
+                <CalendarPeek {...peekProps} days={nextDays} />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       )}
