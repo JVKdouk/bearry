@@ -14,6 +14,8 @@ import {
 } from "@/lib/format";
 import { TEXT } from "@/lib/theme";
 import { describeRepeat } from "@/lib/recurrence";
+import { useSelection } from "@/store/selection";
+import { useLongPress } from "@/lib/useLongPress";
 import type { Block } from "@/lib/types";
 
 // The card is the app's core object: pills on top, a bold title, a time row,
@@ -30,6 +32,17 @@ export function TaskCard({
 }) {
   const update = useSync((s) => s.update);
   const openEditTask = useUI((s) => s.openEditTask);
+
+  // Bulk selection. A long-press enters selection mode; while in it, a tap
+  // toggles the card instead of opening it. Subscribing to `has(id)` rather
+  // than the whole set keeps a card from re-rendering when a *different* card
+  // is toggled.
+  const selectionActive = useSelection((s) => s.active);
+  const selected = useSelection((s) => s.ids.has(todo.id));
+  const beginSelection = useSelection((s) => s.begin);
+  const toggleSelection = useSelection((s) => s.toggle);
+  const longPress = useLongPress(() => beginSelection(todo.id));
+
   const projects = useCollection("project");
   const project = projects.find((p) => p.id === todo.projectId);
   const repeatLabel = describeRepeat(todo.recurrenceRule);
@@ -53,12 +66,48 @@ export function TaskCard({
   const dim = featured ? "rgba(255,255,255,0.85)" : TEXT.secondary;
   const titleColor = featured ? "#fff" : done ? TEXT.tertiary : TEXT.primary;
 
+  function onCardClick() {
+    // While selecting, a tap toggles. A long-press that just fired also ends in
+    // a click, so it's suppressed — otherwise entering selection mode would
+    // immediately toggle the card back off.
+    if (longPress.didFire()) return;
+    if (selectionActive) toggleSelection(todo.id);
+    else openEditTask(todo.id);
+  }
+
   return (
     <div
-      className={`card card-interactive${featured ? " card-featured" : ""}`}
-      onClick={() => openEditTask(todo.id)}
-      style={{ padding: 16 }}
+      className={`card card-interactive${featured ? " card-featured" : ""}${
+        selected ? " card-selected" : ""
+      }`}
+      onClick={onCardClick}
+      {...longPress.handlers}
+      style={{ padding: 16, position: "relative" }}
     >
+      {/* A tick in the corner while selecting, in place of nothing — the card
+          border also lights up (see .card-selected), but the tick is what makes
+          "this one is chosen" unambiguous at a glance across a dozen cards. */}
+      {selectionActive && (
+        <span
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: 10,
+            right: 10,
+            width: 22,
+            height: 22,
+            borderRadius: "50%",
+            display: "grid",
+            placeItems: "center",
+            background: selected ? "#a855f7" : "transparent",
+            border: `1.5px solid ${selected ? "transparent" : "#44445a"}`,
+            color: "#fff",
+            zIndex: 2,
+          }}
+        >
+          {selected && <CheckOutlined style={{ fontSize: 12 }} />}
+        </span>
+      )}
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* pills */}
@@ -128,9 +177,9 @@ export function TaskCard({
           )}
         </div>
 
-        {/* Complete toggle — tasks only. An event completes by happening, so a
-            checkbox on one would promise an action that does nothing. */}
-        {!isEvent && (
+        {/* Complete toggle — tasks only, and hidden while selecting, where the
+            corner belongs to the selection tick and a tap means "select". */}
+        {!isEvent && !selectionActive && (
         <button
           aria-label={done ? "Mark as not done" : "Mark as done"}
           onClick={(e) => {

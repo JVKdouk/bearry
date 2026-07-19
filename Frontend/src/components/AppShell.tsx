@@ -39,6 +39,8 @@ import { createDefaultsNow } from "@/lib/createContext";
 import { SyncBadge } from "./SyncBadge";
 import { SidebarLists } from "./SidebarLists";
 import { BottomNav } from "./BottomNav";
+import { BulkBar } from "./BulkBar";
+import { useSelection } from "@/store/selection";
 import { ACCENT } from "@/lib/theme";
 
 // The task drawer is heavy — it pulls the schedule popover, the reminder picker
@@ -179,8 +181,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Changing page closes the task panel. It's scoped to the task you were
   // looking at, so carrying it into a different view leaves an editor floating
   // over unrelated content with no obvious way back.
+  const clearSelection = useSelection((s) => s.clear);
   useEffect(() => {
     closeTaskDrawer();
+    // Leaving the page ends a selection: the tasks you picked belong to the
+    // view you picked them in, and carrying an invisible selection to another
+    // screen is how a bulk delete lands on the wrong things.
+    clearSelection();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
@@ -737,6 +744,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {isMobile && <BottomNav />}
+      <BulkBar />
     </div>
   );
 }

@@ -587,3 +587,102 @@ a {
 /* The count no longer needs to hide: rows with a gear reserve space for it in
    their own padding. Hiding on hover was wrong on touch, where there is no
    hover — the gear stayed visible and the number sat underneath it. */
+
+/* A selected task card. The ring is the ambient signal (the corner tick is the
+   explicit one), and disabling the hover transform while selecting stops cards
+   jumping as you sweep across them tapping. Also kill text selection — a
+   long-press on mobile otherwise starts selecting the title's text. */
+.card-selected {
+  box-shadow: 0 0 0 2px #a855f7 inset;
+  border-color: transparent;
+}
+.card-interactive {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* The bulk-action bar. Fixed above the mobile nav; a rounded dark pill so it
+   reads as a transient tool over the content rather than a permanent chrome. */
+.bulk-bar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100vw - 24px);
+  padding: 8px 10px 8px 8px;
+  background: #16161f;
+  border: 1px solid #2a2a37;
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+/* On desktop the nav is a side rail, so the bar sits lower. */
+@media (min-width: 768px) {
+  .bulk-bar {
+    bottom: 24px;
+  }
+}
+.bulk-bar-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #a9a9b8;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.bulk-bar-close:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8e8ef;
+}
+.bulk-bar-count {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e8e8ef;
+  padding-right: 4px;
+  border-right: 1px solid #2a2a37;
+}
+.bulk-bar-actions {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+}
+.bulk-bar-action {
+  flex-shrink: 0;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 58px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #c9c9d6;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.bulk-bar-action:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+}
+.bulk-bar-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.bulk-bar-action .anticon {
+  font-size: 16px;
+}
+.bulk-bar-danger:hover {
+  background: rgba(255, 77, 79, 0.14);
+  color: #ff7875;
+}
