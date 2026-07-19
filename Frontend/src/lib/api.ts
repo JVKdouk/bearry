@@ -3,6 +3,7 @@
 // allowlist must name this origin (FRONT_END_ORIGIN) with credentials:true.
 
 import type {
+  AcceptOverrides,
   CaptureItem,
   Diagnosis,
   DigestStatus,
@@ -175,7 +176,7 @@ export const api = {
     }),
   captureAccept: (
     id: string,
-    body?: { type?: string; projectId?: string | null },
+    body?: AcceptOverrides,
   ) =>
     request<{ ok: boolean; createdType: string; createdId: string | null }>(
       `/capture/${id}/accept`,

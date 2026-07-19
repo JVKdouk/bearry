@@ -137,6 +137,21 @@ export type EntityName = keyof SyncEntities;
 
 // Non-syncable / read endpoints -------------------------------------------
 
+/**
+ * What the user chose in triage, overriding what the classifier guessed.
+ *
+ * `null` clears a suggestion outright; leaving a field out keeps whatever was
+ * extracted. That distinction matters — "no date" and "the date it found" are
+ * different answers, and collapsing them means a wrongly-detected date can only
+ * be escaped by throwing the capture away.
+ */
+export interface AcceptOverrides {
+  type?: string;
+  projectId?: string | null;
+  date?: string | null;
+  durationMinutes?: number | null;
+}
+
 export interface CaptureItem {
   id: string;
   rawContent: string;

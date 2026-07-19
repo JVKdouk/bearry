@@ -5,8 +5,10 @@ import {
   App as AntdApp,
   Button,
   Card,
+  DatePicker,
   Empty,
   Input,
+  Select,
   Segmented,
   Space,
   Tag,
@@ -24,10 +26,12 @@ import { PageHeader } from "@/components/PageHeader";
 import { ListSkeleton } from "@/components/Skeletons";
 import { ApiError } from "@/lib/api";
 import { useSync } from "@/store/sync";
+import { useCollection } from "@/store/hooks";
+import dayjs from "dayjs";
 import { useCapture, useInboxItems } from "@/store/capture";
 import { useIsOffline } from "@/store/network";
 import { fmtDateTime } from "@/lib/format";
-import type { CaptureItem } from "@/lib/types";
+import type { AcceptOverrides, CaptureItem } from "@/lib/types";
 
 const { Text, Paragraph } = Typography;
 
@@ -38,11 +42,102 @@ const TYPE_META: Record<string, { color: string; icon: React.ReactNode }> = {
   trash: { color: "default", icon: <DeleteOutlined /> },
 };
 
+type Edit = { date?: string; dateCleared?: boolean; projectId?: string | null };
+
+/**
+ * The classifier's guesses, as things you can accept or change.
+ *
+ * The triage ritual is "confirm, don't configure", so this stays a single row
+ * of chips rather than a form — but confirming something you can't see isn't
+ * confirmation, it's a coin flip.
+ */
+function Suggestions({
+  item,
+  edit,
+  projects,
+  onEdit,
+}: {
+  item: CaptureItem;
+  edit: Edit;
+  projects: { id: string; name: string }[];
+  onEdit: (patch: Partial<Edit>) => void;
+}) {
+  const detectedDate = item.extractedFields?.date as string | undefined;
+  const date = edit.dateCleared ? null : (edit.date ?? detectedDate ?? null);
+  const projectId = edit.projectId !== undefined ? edit.projectId : item.suggestedProjectId ?? null;
+  const duration = item.extractedFields?.durationMinutes as number | undefined;
+
+  // Nothing was extracted and there's nothing to assign — don't add an empty row.
+  if (!detectedDate && !edit.date && !projectId && projects.length === 0) return null;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        flexWrap: "wrap",
+        marginTop: 10,
+        paddingTop: 10,
+        borderTop: "1px solid rgba(255,255,255,0.06)",
+      }}
+    >
+      <Text type="secondary" style={{ fontSize: 11.5 }}>
+        Suggested
+      </Text>
+
+      <DatePicker
+        size="small"
+        value={date ? dayjs(date) : null}
+        onChange={(d) =>
+          onEdit(d ? { date: d.toISOString(), dateCleared: false } : { dateCleared: true })
+        }
+        format="MMM D"
+        placeholder="No date"
+        variant="filled"
+        style={{ width: 118 }}
+      />
+
+      {duration ? (
+        <Tag style={{ marginInlineEnd: 0 }}>{duration} min</Tag>
+      ) : null}
+
+      {projects.length > 0 && (
+        <Select
+          size="small"
+          value={projectId}
+          onChange={(v) => onEdit({ projectId: v ?? null })}
+          placeholder="No list"
+          allowClear
+          style={{ minWidth: 130 }}
+          options={projects.map((p) => ({ label: p.name, value: p.id }))}
+        />
+      )}
+    </div>
+  );
+}
+
 export default function InboxPage() {
   const { message } = AntdApp.useApp();
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
+  /**
+   * Per-item edits to what the classifier extracted.
+   *
+   * `dateCleared` is tracked separately from `date` because "the user removed
+   * the detected date" and "the user hasn't touched it" must reach the server
+   * as different answers — otherwise a wrongly-detected date can only be
+   * escaped by dismissing the capture and retyping it.
+   */
+  const [edits, setEdits] = useState<
+    Record<string, { date?: string; dateCleared?: boolean; projectId?: string | null }>
+  >({});
+  const projects = useCollection("project");
+
+  function editItem(id: string, patch: Partial<(typeof edits)[string]>) {
+    setEdits((e) => ({ ...e, [id]: { ...e[id], ...patch } }));
+  }
   const pull = useSync((s) => s.pull);
   const items = useInboxItems();
   const loading = useCapture((s) => s.loading);
@@ -84,8 +179,17 @@ export default function InboxPage() {
       message.info("This one files itself once you're back online");
       return;
     }
+
+    // `null` clears a suggestion the user rejected; leaving the key out keeps
+    // whatever the classifier found. The two are genuinely different answers.
+    const edit = edits[item.id] ?? {};
+    const chosen: AcceptOverrides = {
+      ...(edit.dateCleared ? { date: null } : edit.date ? { date: edit.date } : {}),
+      ...(edit.projectId !== undefined ? { projectId: edit.projectId } : {}),
+    };
+
     try {
-      await doAccept(item.id, type);
+      await doAccept(item.id, type, chosen);
       if (!offline) await pull(); // bring the new todo/note/event into the store
       message.success(type === "trash" ? "Dismissed" : `Added as ${type}`);
     } catch (e) {
@@ -179,6 +283,19 @@ export default function InboxPage() {
                     {chosen}
                   </Tag>
                 </div>
+
+                {/* What the classifier found, shown rather than applied
+                    silently. Accepting used to file a task with a date and a
+                    project the user never saw — right most of the time, and
+                    quietly wrong the rest, with no way to tell which. */}
+                {chosen !== "trash" && !item.pending && (
+                  <Suggestions
+                    item={item}
+                    edit={edits[item.id] ?? {}}
+                    projects={projects}
+                    onEdit={(patch) => editItem(item.id, patch)}
+                  />
+                )}
 
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
                   <Segmented

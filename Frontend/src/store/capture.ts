@@ -12,12 +12,12 @@ import { create } from "zustand";
 import { api, isOfflineError } from "@/lib/api";
 import { idbGet, idbSet, KEYS } from "@/lib/offlineDb";
 import { isOffline } from "./network";
-import type { CaptureItem } from "@/lib/types";
+import type { AcceptOverrides, CaptureItem } from "@/lib/types";
 
 /** A capture the user made that hasn't reached the server yet. */
 type QueuedCapture =
   | { kind: "create"; localId: string; text: string; createdAt: string }
-  | { kind: "accept"; id: string; type: string }
+  | { kind: "accept"; id: string; type: string; overrides?: AcceptOverrides }
   | { kind: "dismiss"; id: string };
 
 interface CaptureState {
@@ -30,7 +30,7 @@ interface CaptureState {
   attach: (userId: string) => Promise<void>;
   load: (force?: boolean) => Promise<void>;
   capture: (text: string) => Promise<void>;
-  accept: (id: string, type: string) => Promise<void>;
+  accept: (id: string, type: string, overrides?: AcceptOverrides) => Promise<void>;
   dismiss: (id: string) => Promise<void>;
   /** Push everything queued. Called on reconnect. */
   flush: () => Promise<void>;
@@ -135,7 +135,7 @@ export const useCapture = create<CaptureState>((set, get) => {
       }
     },
 
-    accept: async (id, type) => {
+    accept: async (id, type, overrides) => {
       // A queued (not-yet-uploaded) capture is triaged purely locally.
       const isLocal = get().queued.some((q) => q.kind === "create" && q.localId === id);
       if (isLocal) {
@@ -153,15 +153,15 @@ export const useCapture = create<CaptureState>((set, get) => {
 
       set((s) => ({ items: s.items.filter((i) => i.id !== id) }));
       if (isOffline()) {
-        set((s) => ({ queued: [...s.queued, { kind: "accept", id, type }] }));
+        set((s) => ({ queued: [...s.queued, { kind: "accept", id, type, overrides }] }));
         await persist();
         return;
       }
       try {
-        await api.captureAccept(id, { type });
+        await api.captureAccept(id, { ...overrides, type });
       } catch (err) {
         if (!isOfflineError(err)) throw err;
-        set((s) => ({ queued: [...s.queued, { kind: "accept", id, type }] }));
+        set((s) => ({ queued: [...s.queued, { kind: "accept", id, type, overrides }] }));
         await persist();
       }
     },
@@ -205,7 +205,7 @@ export const useCapture = create<CaptureState>((set, get) => {
       for (const q of batch) {
         try {
           if (q.kind === "create") await api.captureCreate({ text: q.text, source: "manual" });
-          else if (q.kind === "accept") await api.captureAccept(q.id, { type: q.type });
+          else if (q.kind === "accept") await api.captureAccept(q.id, { ...q.overrides, type: q.type });
           else await api.captureDismiss(q.id);
           done.add(q);
         } catch (err) {
