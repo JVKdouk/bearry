@@ -11,6 +11,7 @@
 
 import type { IntegrationProvider } from "../types";
 import { safeFetchJson } from "../safeFetch";
+import { parseRRule } from "@/src/lib/recurrence/rrule";
 
 const API = "https://api.ticktick.com/open/v1";
 
@@ -26,7 +27,21 @@ type TTTask = {
   status?: number;
   /** "TEXT" | "NOTE" | "CHECKLIST" — NOTE items aren't to-dos either. */
   kind?: string;
+  /** An RRULE string, e.g. "RRULE:FREQ=WEEKLY;INTERVAL=1;BYDAY=MO". */
+  repeatFlag?: string;
 };
+
+/**
+ * TickTick's repeat field is mostly RFC 5545, but it also emits proprietary
+ * forms ("ERULE:NAME=CUSTOM;..." and lunar-calendar rules) that look close
+ * enough to parse but don't mean what they appear to. Anything our engine
+ * doesn't fully accept is dropped, so the task imports as a one-off rather than
+ * repeating on dates nobody asked for.
+ */
+function repeatRuleOrUndefined(flag?: string): string | undefined {
+  if (!flag) return undefined;
+  return parseRRule(flag) ? flag.trim().replace(/^RRULE:/i, "") : undefined;
+}
 type TTProjectData = { tasks?: TTTask[] };
 
 /** TickTick priority codes → our priorities (it has no "ASAP"). */
@@ -37,6 +52,54 @@ function isoOrUndefined(v?: string): string | undefined {
   if (!v) return undefined;
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
+/**
+ * Map one project's items to canonical blocks.
+ *
+ * Exported and pure so the tests exercise the real mapping. It previously lived
+ * inline in `pull`, which forced the test to keep its own copy — and a test that
+ * mirrors the code it checks passes happily while the code is broken.
+ *
+ * TickTick serves notes and to-dos from the same endpoint, flagged by `kind` on
+ * either the project or the item. Importing everything as a task filled the task
+ * list with things that were never to-dos and — worse — made them schedulable,
+ * so the planner started booking focus time for reference material.
+ */
+export function mapProjectItems(project: TTProject, items: TTTask[]): unknown[] {
+  const blocks: unknown[] = [];
+  const projectIsNotes = (project.kind ?? "").toUpperCase() === "NOTE";
+
+  for (const t of items) {
+    const title = (t.title ?? "").trim().slice(0, 1000);
+    const body = (t.content || t.desc || "").slice(0, 10_000);
+    if (!title && !body) continue;
+
+    const isNote = projectIsNotes || (t.kind ?? "").toUpperCase() === "NOTE";
+    if (isNote) {
+      blocks.push({
+        type: "note",
+        sourceId: t.id,
+        title: title || "(untitled note)",
+        body: body || title,
+      });
+      continue;
+    }
+
+    if (!title) continue; // a to-do with no title is nothing to act on
+    blocks.push({
+      type: "task",
+      sourceId: t.id,
+      title,
+      notes: body || undefined,
+      due: isoOrUndefined(t.dueDate),
+      priority: t.priority != null ? PRIORITY[t.priority] : undefined,
+      status: t.status === 2 ? "done" : "todo",
+      recurrenceRule: repeatRuleOrUndefined(t.repeatFlag),
+    });
+  }
+
+  return blocks;
 }
 
 export const tickTickProvider: IntegrationProvider = {
@@ -79,49 +142,15 @@ export const tickTickProvider: IntegrationProvider = {
     ctx.log("listing TickTick projects");
     const projects = await safeFetchJson<TTProject[]>(`${API}/project`, token);
     const blocks: unknown[] = [];
-    let tasks = 0;
-    let notes = 0;
     for (const p of projects) {
       if (only && !only.has(p.id)) continue;
       const data = await safeFetchJson<TTProjectData>(`${API}/project/${encodeURIComponent(p.id)}/data`, token)
         .catch(() => ({ tasks: [] as TTTask[] }));
-      // TickTick uses the same endpoint for notes and to-dos, flagged by `kind`
-      // on either the project or the item. Importing everything as a task filled
-      // the task list with things that were never to-dos and — worse — made them
-      // schedulable, so the planner started booking time for reference material.
-      const projectIsNotes = (p.kind ?? "").toUpperCase() === "NOTE";
-
-      for (const t of data.tasks ?? []) {
-        const title = (t.title ?? "").trim().slice(0, 1000);
-        const body = (t.content || t.desc || "").slice(0, 10_000);
-        if (!title && !body) continue;
-
-        const isNote = projectIsNotes || (t.kind ?? "").toUpperCase() === "NOTE";
-        if (isNote) {
-          notes += 1;
-          blocks.push({
-            type: "note",
-            sourceId: t.id,
-            title: title || "(untitled note)",
-            body: body || title,
-          });
-          continue;
-        }
-
-        if (!title) continue; // a to-do with no title is nothing to act on
-        tasks += 1;
-        blocks.push({
-          type: "task",
-          sourceId: t.id,
-          title,
-          notes: body || undefined,
-          due: isoOrUndefined(t.dueDate),
-          priority: t.priority != null ? PRIORITY[t.priority] : undefined,
-          status: t.status === 2 ? "done" : "todo",
-        });
-      }
+      blocks.push(...mapProjectItems(p, data.tasks ?? []));
     }
-    ctx.log(`imported ${tasks} tasks and ${notes} notes`);
+
+    const tasks = blocks.filter((b) => (b as { type: string }).type === "task").length;
+    ctx.log(`imported ${tasks} tasks and ${blocks.length - tasks} notes`);
     return { blocks };
   },
 };

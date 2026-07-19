@@ -47,6 +47,7 @@ export const TaskBlockSchema = z
     priority: z.enum(["ASAP", "high", "medium", "low"]).optional(),
     status: z.enum(["todo", "in_progress", "done"]).optional(),
     estimatedDuration: z.number().int().min(1).max(1440).optional(),
+    recurrenceRule: z.string().max(1000).optional(),
     url: z.string().url().max(2000).optional(),
   })
   .strict();
@@ -111,7 +112,7 @@ export function blockContract() {
     blockTypes: BLOCK_TYPES,
     fields: {
       event: ["sourceId", "title", "start", "end", "allDay", "location?", "description?", "recurrenceRule?", "url?"],
-      task: ["sourceId", "title", "notes?", "due?", "priority?", "status?", "estimatedDuration?", "url?"],
+      task: ["sourceId", "title", "notes?", "due?", "priority?", "status?", "estimatedDuration?", "recurrenceRule?", "url?"],
       note: ["sourceId", "title", "body", "url?"],
     },
   };

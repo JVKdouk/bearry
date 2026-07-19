@@ -53,6 +53,7 @@ function toEntityData(block: CanonicalBlock): Record<string, unknown> {
         priority: block.priority ?? "medium",
         status: block.status ?? "todo",
         estimatedDuration: block.estimatedDuration ?? 30,
+        recurrenceRule: block.recurrenceRule ?? null,
       };
     case "note":
       return { title: block.title, bodyMarkdown: block.body };

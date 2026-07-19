@@ -32,6 +32,7 @@ import { useUI } from "@/store/ui";
 import { useIsOffline } from "@/store/network";
 import { durationLabel, LIFE_AREA_COLOR } from "@/lib/format";
 import { ACCENT, SUNSET, SURFACE, TEXT, WARM } from "@/lib/theme";
+import { expandRange } from "@/lib/recurrence";
 import type { Diagnosis, FindingAction, ScheduledBlock, ScheduleProposal } from "@/lib/types";
 
 dayjs.extend(isoWeek);
@@ -46,12 +47,17 @@ const HEADER_H = 46;
 const SNAP = 15;
 
 interface Block {
+  /** Unique per rendered instance — a repeating event yields several. */
   id: string;
+  /** The stored row this came from. Every write must use this, never `id`. */
+  masterId: string;
   kind: "todo" | "event";
   title: string;
   start: Dayjs;
   end: Dayjs;
   color: string;
+  /** A generated occurrence rather than the stored row itself. */
+  isRepeat?: boolean;
 }
 
 interface DragState {
@@ -239,7 +245,7 @@ function MonthGrid({
                         title={`${b.start.format("HH:mm")} ${b.title}`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (b.kind === "todo") onOpenTask(b.id);
+                          if (b.kind === "todo") onOpenTask(b.masterId);
                         }}
                         style={{
                           display: "flex",
@@ -389,32 +395,65 @@ function CalendarInner() {
     return m;
   }, [todos]);
 
+  /**
+   * The window we expand recurrence over. Padded a week either side of what's
+   * on screen so stepping to the next period doesn't briefly render empty, and
+   * so a swipe can show the neighbouring period mid-gesture.
+   */
+  const expandWindow = useMemo(() => {
+    const r = rangeForView(view, anchor);
+    return {
+      from: r.start.subtract(7, "day").toDate(),
+      to: r.end.add(7, "day").toDate(),
+    };
+  }, [view, anchor]);
+
   const blocks = useMemo<Block[]>(() => {
-    const out: Block[] = [];
-    for (const e of events) {
+    const { from, to } = expandWindow;
+
+    // Recurring rows are stored once and drawn many times. Expansion happens
+    // client-side because the app has to work offline; the engine is a mirror
+    // of the server's so both agree on the dates.
+    const eventOccurrences = expandRange(events, from, to, (e) => ({
+      start: new Date(e.start),
+      end: new Date(e.end),
+    }));
+
+    const out: Block[] = eventOccurrences.map((o) => ({
+      id: o.key,
+      masterId: o.masterId,
+      kind: "event",
+      title: o.item.title || "Event",
+      start: dayjs(o.start),
+      end: dayjs(o.end),
+      color: o.item.source === "google" ? "#4096ff" : WARM,
+      isRepeat: o.isRepeat,
+    }));
+
+    // A repeating task shows its future occurrences too, but only the stored
+    // one is completable — the rest are a preview of what completing it will
+    // roll into, which is why `isRepeat` renders them muted.
+    const schedulable = todos.filter(
+      (t) => t.startTime && t.endTime && t.status !== "done" && !t.letGoAt,
+    );
+    for (const o of expandRange(schedulable, from, to, (t) => ({
+      start: new Date(t.startTime!),
+      end: new Date(t.endTime!),
+    }))) {
       out.push({
-        id: e.id,
-        kind: "event",
-        title: e.title || "Event",
-        start: dayjs(e.start),
-        end: dayjs(e.end),
-        color: e.source === "google" ? "#4096ff" : WARM,
+        id: o.key,
+        masterId: o.masterId,
+        kind: "todo",
+        title: o.item.title || "Task",
+        start: dayjs(o.start),
+        end: dayjs(o.end),
+        color: ACCENT,
+        isRepeat: o.isRepeat,
       });
     }
-    for (const t of todos) {
-      if (t.startTime && t.endTime && t.status !== "done" && !t.letGoAt) {
-        out.push({
-          id: t.id,
-          kind: "todo",
-          title: t.title || "Task",
-          start: dayjs(t.startTime),
-          end: dayjs(t.endTime),
-          color: ACCENT,
-        });
-      }
-    }
+
     return out;
-  }, [events, todos]);
+  }, [events, todos, expandWindow]);
 
   const hours = Array.from({ length: DAY_END - DAY_START + 1 }, (_, i) => DAY_START + i);
   const gridHeight = hours.length * HOUR_PX;
@@ -1280,7 +1319,9 @@ function CalendarInner() {
                         title={`${b.start.format("HH:mm")}–${b.end.format("HH:mm")}  ${b.title}`}
                         onMouseDown={(e) => e.stopPropagation()}
                         onClick={() => {
-                          if (b.kind === "todo") openEditTask(b.id);
+                          // Opens the stored task even from a future occurrence:
+                          // editing a repeating task edits the series.
+                          if (b.kind === "todo") openEditTask(b.masterId);
                         }}
                         style={{
                           position: "absolute",
@@ -1298,6 +1339,11 @@ function CalendarInner() {
                           alignItems: compact || tinyBlocks ? "center" : "stretch",
                           gap: compact ? 6 : 0,
                           cursor: b.kind === "todo" ? "pointer" : "default",
+                          // A generated occurrence is a preview of a repeat, not
+                          // something that exists yet — reading as slightly
+                          // lighter keeps it from being mistaken for a
+                          // separately-scheduled commitment.
+                          opacity: b.isRepeat ? 0.72 : 1,
                         }}
                       >
                         <span

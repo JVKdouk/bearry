@@ -243,3 +243,36 @@ test("common third-party rules from real calendar feeds parse", () => {
     assert.ok(parseRRule(raw), `should parse: ${raw}`);
   }
 });
+
+test("unknown parameters are refused rather than ignored", () => {
+  // The failure that motivated this: TickTick's proprietary ERULE form parsed
+  // cleanly as a plain weekly rule because the unrecognised part was skipped.
+  // Half-understanding a rule puts tasks on days nobody chose.
+  assert.equal(parseRRule("ERULE:NAME=CUSTOM;FREQ=WEEKLY"), null);
+  assert.equal(parseRRule("FREQ=MONTHLY;BYSETPOS=-1;BYDAY=FR"), null);
+  assert.equal(parseRRule("FREQ=YEARLY;BYWEEKNO=20"), null);
+  assert.equal(parseRRule("FREQ=YEARLY;BYYEARDAY=100"), null);
+  assert.equal(parseRRule("FREQ=DAILY;BYHOUR=9"), null);
+});
+
+test("WKST is accepted where it cannot change the result", () => {
+  // Real feeds emit WKST constantly; refusing it outright would drop a large
+  // share of ordinary rules to one-offs for no correctness gain.
+  assert.ok(parseRRule("FREQ=WEEKLY;BYDAY=MO;WKST=MO"), "interval 1: week start is inert");
+  assert.ok(parseRRule("FREQ=DAILY;WKST=MO"), "daily: no weeks being counted");
+  assert.ok(parseRRule("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO;WKST=SU"), "matches our anchor");
+});
+
+test("WKST is refused where it WOULD change the result", () => {
+  // Counting fortnights from Monday instead of Sunday shifts every occurrence.
+  assert.equal(parseRRule("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO;WKST=MO"), null);
+});
+
+test("all supported parameters together still parse", () => {
+  const r = parseRRule("FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;COUNT=10;WKST=SU");
+  assert.ok(r);
+  assert.equal(r.freq, "WEEKLY");
+  assert.equal(r.interval, 2);
+  assert.deepEqual(r.byDay, [1, 3]);
+  assert.equal(r.count, 10);
+});

@@ -88,6 +88,21 @@ async function accessTokenFromRefresh(refreshToken: string): Promise<string> {
   return token;
 }
 
+/**
+ * `singleEvents: true` asks Google to expand recurring events into concrete
+ * instances, and that is deliberate — do not "optimise" it into importing the
+ * master with its RRULE.
+ *
+ * We do have our own RRULE engine, and one row would certainly be tidier than
+ * sixty. But Google's expansion also applies the things our engine does not
+ * model: EXDATE cancellations and individually-moved instances. Importing the
+ * bare rule would mean showing a stand-up that the user cancelled last Tuesday,
+ * or showing it at the old time after they moved that one instance. A phantom
+ * meeting is worse than a redundant row: you plan around it.
+ *
+ * ICS feeds are handled the other way (rule carried through, expanded client-
+ * side) because those feeds are typically small, static, and exception-free.
+ */
 async function listEvents(accessToken: string): Promise<GEvent[]> {
   const now = Date.now();
   const params = new URLSearchParams({

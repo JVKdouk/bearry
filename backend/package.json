@@ -65,6 +65,7 @@
     "seed": "yarn tsx core/database/seeds/index.ts",
     "db:migrate": "yarn prisma migrate deploy",
     "db:migrate:dev": "yarn prisma migrate dev",
-    "db:generate": "yarn prisma generate"
+    "db:generate": "yarn prisma generate",
+    "sync:rrule": "cp src/lib/recurrence/rrule.ts ../Frontend/src/lib/recurrence/rrule.ts"
   }
 }
