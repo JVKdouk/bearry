@@ -28,6 +28,7 @@ import { useAuth } from "@/store/auth";
 import { useUI } from "@/store/ui";
 import { useSync } from "@/store/sync";
 import { useIntegrations } from "@/store/integrations";
+import { PullToRefresh } from "@/components/PullToRefresh";
 import { useCapture } from "@/store/capture";
 import { useIsOffline, watchConnectivity } from "@/store/network";
 import { SyncBadge } from "./SyncBadge";
@@ -114,6 +115,22 @@ function RailButton({
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const syncPull = useSync((s) => s.pull);
+  const captureLoad = useCapture((s) => s.load);
+
+  /**
+   * What a pull actually refreshes.
+   *
+   * Both stores, because "refresh" means the whole workspace to a user, and an
+   * inbox that stays stale after an explicit pull reads as the gesture being
+   * broken. Failures are swallowed: the sync store already surfaces its own
+   * state in the badge, and an error toast from a gesture someone made out of
+   * habit is noise.
+   */
+  async function refresh() {
+    await Promise.allSettled([syncPull(), captureLoad(true)]);
+  }
+
   const { user, loading, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
@@ -452,29 +469,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
 
         <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex" }}>
+          {/* Pull-to-refresh wraps the scroller itself, so the gesture and the
+              scroll position come from the same element. It's mobile-only and
+              off on the calendar, which owns its own scrolling and already
+              handles vertical drags for creating blocks — two gestures reading
+              the same downward movement is how you get a refresh you didn't
+              ask for in the middle of drawing an event. */}
           <main
             style={{
               flex: 1,
               minWidth: 0,
-              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
               height: "calc(100vh - 56px)",
+              overflow: isMobile && !fullBleed ? "hidden" : undefined,
+              overflowY: isMobile && !fullBleed ? undefined : "auto",
             }}
           >
-            <div
-              style={
-                fullBleed
-                  ? { height: "100%" }
-                  : {
-                      maxWidth: 1000,
-                      width: "100%",
-                      margin: "0 auto",
-                      // extra bottom room so content clears the floating nav
-                      padding: isMobile ? "18px 16px 130px" : "26px 30px",
-                    }
-              }
-            >
-              {children}
-            </div>
+            <PullToRefresh onRefresh={refresh} enabled={isMobile && !fullBleed}>
+              <div
+                style={
+                  fullBleed
+                    ? { height: "100%" }
+                    : {
+                        maxWidth: 1000,
+                        width: "100%",
+                        margin: "0 auto",
+                        // extra bottom room so content clears the floating nav
+                        padding: isMobile ? "18px 16px 130px" : "26px 30px",
+                      }
+                }
+              >
+                {children}
+              </div>
+            </PullToRefresh>
           </main>
           <TaskDetail overlay={fullBleed} isMobile={isMobile} />
         </div>

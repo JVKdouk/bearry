@@ -145,3 +145,48 @@ test("layout is stable regardless of input order", () => {
     assert.deepEqual(forward.get(it.id), reversed.get(it.id), `${it.id} moved on reorder`);
   }
 });
+
+// --- block content density --------------------------------------------------
+
+/** Mirrors titleLines in the calendar page. */
+function titleLines(heightPx: number, tiny: boolean): number {
+  const lineHeight = tiny ? 12.5 : 15;
+  const padding = 6;
+  return Math.max(1, Math.floor((heightPx - padding) / lineHeight));
+}
+
+test("a taller block shows more of its title", () => {
+  // The behaviour being replaced: two size buckets, so a 40-minute block and a
+  // 20-minute one both collapsed to one truncated line.
+  assert.ok(titleLines(80, false) > titleLines(40, false));
+  assert.ok(titleLines(160, false) > titleLines(80, false));
+});
+
+test("even the shortest block shows one line rather than none", () => {
+  // Zero lines would render a block with no identity at all.
+  for (const h of [0, 1, 6, 10, 22]) {
+    assert.ok(titleLines(h, false) >= 1, `height ${h} produced no line`);
+    assert.ok(titleLines(h, true) >= 1, `tiny height ${h} produced no line`);
+  }
+});
+
+test("line count never exceeds what the height can actually fit", () => {
+  // Claiming more lines than fit would slice the last row through the middle.
+  for (const h of [22, 30, 45, 56, 90, 120, 200]) {
+    const lines = titleLines(h, false);
+    assert.ok(lines * 15 <= h, `${lines} lines don't fit in ${h}px`);
+  }
+});
+
+test("narrow columns fit more lines, since the type is smaller there", () => {
+  assert.ok(titleLines(60, true) >= titleLines(60, false));
+});
+
+test("line count grows monotonically with height", () => {
+  let previous = 0;
+  for (let h = 20; h <= 300; h += 5) {
+    const lines = titleLines(h, false);
+    assert.ok(lines >= previous, `height ${h} showed fewer lines than ${h - 5}`);
+    previous = lines;
+  }
+});

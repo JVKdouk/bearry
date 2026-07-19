@@ -7,25 +7,41 @@
  * the real grid. The live grid carries drag-to-create, block dragging, region
  * editing and ref-indexed columns — reusing it for a peek would mean either
  * threading all of that through a shared component or having two interactive
- * grids competing for the same pointer. A peek only has to be *recognisable*:
- * you're deciding whether to keep going, not reading detail.
+ * grids competing for the same pointer.
  *
- * Anything it can't do is off: no pointer events, no drag targets, no ghosts.
+ * "Simplified" means *non-interactive*, not *approximate*. It draws the same
+ * regions, the same overlap packing and the same block geometry as the live
+ * grid, because anything it gets wrong is visible as a jolt at the end of the
+ * gesture: the earlier version drew blocks full-width with no time-block bands,
+ * so releasing a swipe made every overlapping event jump into its lane and the
+ * background bands appear from nowhere. The whole point of a peek is that
+ * finishing the swipe changes nothing.
  */
 
 import type { Dayjs } from "dayjs";
+import type { CalendarBlock } from "@/lib/calendarTypes";
 
-export interface PeekBlock {
+export interface PeekRegion {
   id: string;
-  start: Dayjs;
-  end: Dayjs;
-  color: string;
-  title: string;
+  start: string;
+  end: string;
+  category: string;
+  label?: string | null;
 }
 
 interface Props {
   days: Dayjs[];
-  blocksForDay: (day: Dayjs) => PeekBlock[];
+  blocksForDay: (day: Dayjs) => CalendarBlock[];
+  /** Same packing the live grid uses, so nothing shifts lane on release. */
+  layoutDay: (blocks: CalendarBlock[]) => Map<string, { col: number; cols: number }>;
+  /** Same geometry as the live grid, including the inter-block gap. */
+  posFor: (start: Dayjs, end: Dayjs) => { top: number; height: number };
+  /** Recurring time-block bands. Empty when the user has them hidden. */
+  regionsForDay: (day: Dayjs) => PeekRegion[];
+  regionColor: (category: string) => string;
+  isProtected: (category: string) => boolean;
+  hhmmToMin: (hhmm: string) => number;
+  titleLines: (heightPx: number, tiny: boolean) => number;
   hours: number[];
   hourPx: number;
   headerH: number;
@@ -40,11 +56,20 @@ interface Props {
   todayBg: string;
   /** In a 45px week column only one of time/name fits; the name wins. */
   tiny: boolean;
+  /** Below this height a block has no room for its time as well as its name. */
+  stackedMinPx: number;
 }
 
 export function CalendarPeek({
   days,
   blocksForDay,
+  layoutDay,
+  posFor,
+  regionsForDay,
+  regionColor,
+  isProtected,
+  hhmmToMin,
+  titleLines,
   hours,
   hourPx,
   headerH,
@@ -58,11 +83,14 @@ export function CalendarPeek({
   textTertiary,
   todayBg,
   tiny,
+  stackedMinPx,
 }: Props) {
   return (
     <div style={{ display: "flex", flex: 1, pointerEvents: "none" }} aria-hidden>
       {days.map((day) => {
         const isToday = day.isSame(today, "day");
+        const dayBlocks = blocksForDay(day);
+        const lanes = layoutDay(dayBlocks);
         return (
           <div
             key={day.toISOString()}
@@ -115,11 +143,36 @@ export function CalendarPeek({
                 />
               ))}
 
-              {blocksForDay(day).map((b) => {
-                const startMin = b.start.hour() * 60 + b.start.minute();
-                const endMin = b.end.hour() * 60 + b.end.minute();
-                const top = ((startMin - hours[0] * 60) / 60) * hourPx;
-                const height = Math.max(((endMin - startMin) / 60) * hourPx, 18);
+              {regionsForDay(day).map((r, i) => {
+                const top = (hhmmToMin(r.start) / 60) * hourPx;
+                const height = ((hhmmToMin(r.end) - hhmmToMin(r.start)) / 60) * hourPx;
+                if (height <= 0) return null;
+                const color = regionColor(r.category);
+                return (
+                  <div
+                    key={`${r.id}-${i}`}
+                    style={{
+                      position: "absolute",
+                      top,
+                      height,
+                      left: 0,
+                      right: 0,
+                      zIndex: 0,
+                      background: isProtected(r.category)
+                        ? `repeating-linear-gradient(45deg, ${color}14 0 6px, transparent 6px 12px)`
+                        : `${color}12`,
+                      borderTop: `1px solid ${color}33`,
+                      borderBottom: `1px solid ${color}22`,
+                    }}
+                  />
+                );
+              })}
+
+              {dayBlocks.map((b) => {
+                const { top, height } = posFor(b.start, b.end);
+                const compact = height < stackedMinPx;
+                const lane = lanes.get(b.id) ?? { col: 0, cols: 1 };
+                const laneW = 100 / lane.cols;
                 return (
                   <div
                     key={b.id}
@@ -127,26 +180,50 @@ export function CalendarPeek({
                       position: "absolute",
                       top,
                       height,
-                      left: 4,
-                      right: 6,
+                      left: `calc(${lane.col * laneW}% + 4px)`,
+                      width: `calc(${laneW}% - 6px)`,
                       background: b.color + "26",
                       borderLeft: `3px solid ${b.color}`,
                       borderRadius: 8,
-                      padding: "2px 6px",
+                      padding: tiny ? "1px 4px" : "3px 8px",
                       overflow: "hidden",
-                      fontSize: 11,
-                      color: textPrimary,
-                      lineHeight: 1.2,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "stretch",
+                      justifyContent: "flex-start",
+                      zIndex: 1,
                     }}
                   >
-                    {/* Matches the live grid: when only one fits, the name
-                        wins — the block's position already conveys the time. */}
-                    {!tiny && (
-                      <span style={{ color: b.color, fontWeight: 700, fontSize: 10.5 }}>
+                    <span
+                      style={{
+                        fontSize: tiny ? 10 : compact ? 11 : 12,
+                        color: textPrimary,
+                        fontWeight: 600,
+                        lineHeight: 1.22,
+                        overflow: "hidden",
+                        display: "-webkit-box",
+                        WebkitBoxOrient: "vertical",
+                        WebkitLineClamp: titleLines(height, tiny),
+                        wordBreak: "break-word",
+                        minWidth: 0,
+                      }}
+                    >
+                      {b.title}
+                    </span>
+                    {!tiny && !compact && (
+                      <span
+                        style={{
+                          fontSize: 10.5,
+                          color: b.color,
+                          fontWeight: 700,
+                          lineHeight: 1.25,
+                          fontVariantNumeric: "tabular-nums",
+                          marginTop: 1,
+                        }}
+                      >
                         {b.start.format("HH:mm")}
                       </span>
                     )}
-                    <span style={{ marginLeft: tiny ? 0 : 5 }}>{b.title}</span>
                   </div>
                 );
               })}

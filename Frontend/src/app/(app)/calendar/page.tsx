@@ -54,11 +54,33 @@ const DAY_END = 23;
 const HOUR_PX = 56;
 const MIN_BLOCK_PX = 22;
 const STACKED_MIN_PX = 38;
+/**
+ * Breathing room between blocks that meet.
+ *
+ * A meeting ending at 10:00 and one starting at 10:00 drew as a single
+ * unbroken slab — you couldn't see where one stopped without reading the
+ * times. Shaving a couple of pixels off the bottom of every block is what
+ * every calendar does, and it's the difference between a wall and a list.
+ */
+const BLOCK_GAP_PX = 3;
 const OPEN_AT_HOUR = 6;
 const HEADER_H = 46;
 /** Must match the track's CSS transition below. */
 const SWIPE_SETTLE_MS = 200;
 const SNAP = 15;
+
+/**
+ * How many lines of title a block of this height can show.
+ *
+ * Derived from the height rather than from a couple of size buckets, so a
+ * 40-minute block genuinely shows more of its name than a 20-minute one
+ * instead of both collapsing to a single truncated line.
+ */
+function titleLines(heightPx: number, tiny: boolean): number {
+  const lineHeight = tiny ? 12.5 : 15;
+  const padding = 6;
+  return Math.max(1, Math.floor((heightPx - padding) / lineHeight));
+}
 
 /** The days a view shows for a given anchor. */
 function daysFor(view: View, anchor: Dayjs): Dayjs[] {
@@ -433,24 +455,6 @@ function CalendarInner() {
     setOpenEventId(b.masterId);
   }
 
-  /** Everything the peek needs to look like the grid without behaving like it. */
-  const peekProps = {
-    blocksForDay,
-    hours,
-    hourPx: HOUR_PX,
-    headerH,
-    showHeader: view === "week",
-    colMinWidth,
-    gridHeight,
-    today: now,
-    borderColor: SURFACE.borderSoft,
-    bg: SURFACE.bg,
-    textPrimary: TEXT.primary,
-    textTertiary: TEXT.tertiary,
-    todayBg: SUNSET,
-    tiny: tinyBlocks,
-  };
-
   const ghostsForDay = (day: Dayjs) =>
     (proposal?.blocks ?? []).filter((b) => dayjs(b.start).isSame(day, "day"));
   const minToPx = (min: number) => ((min - DAY_START * 60) / 60) * HOUR_PX;
@@ -458,9 +462,13 @@ function CalendarInner() {
   function posFor(start: Dayjs, end: Dayjs) {
     const startMin = Math.max(start.hour() * 60 + start.minute(), DAY_START * 60);
     const endMin = Math.min(end.hour() * 60 + end.minute(), (DAY_END + 1) * 60);
+    // The gap comes out of the height, not the position, so a block still
+    // starts exactly on its own time — the top edge is the thing people read
+    // against the hour gutter.
+    const raw = minToPx(endMin) - minToPx(startMin);
     return {
       top: minToPx(startMin),
-      height: Math.max(minToPx(endMin) - minToPx(startMin), MIN_BLOCK_PX),
+      height: Math.max(raw - BLOCK_GAP_PX, MIN_BLOCK_PX),
     };
   }
 
@@ -850,6 +858,33 @@ function CalendarInner() {
     };
   }, [drag, openCreateTask]);
 
+  /** Everything the peek needs to look like the grid without behaving like it. */
+  const peekProps = {
+    blocksForDay,
+    layoutDay,
+    posFor,
+    regionsForDay,
+    regionColor: (c: string) => LIFE_AREA_COLOR[c as keyof typeof LIFE_AREA_COLOR],
+    isProtected: (c: string) => PROTECTED.has(c),
+    hhmmToMin,
+    titleLines,
+    stackedMinPx: STACKED_MIN_PX,
+    hours,
+    hourPx: HOUR_PX,
+    headerH,
+    showHeader: view === "week",
+    colMinWidth,
+    gridHeight,
+    today: now,
+    borderColor: SURFACE.borderSoft,
+    bg: SURFACE.bg,
+    textPrimary: TEXT.primary,
+    textTertiary: TEXT.tertiary,
+    todayBg: SUNSET,
+    tiny: tinyBlocks,
+  };
+
+
   const last = days[days.length - 1];
   const rangeLabel =
     view === "day"
@@ -866,11 +901,13 @@ function CalendarInner() {
   const showingToday = days.some((d) => d.isSame(now, "day"));
 
   // Recurring block regions rendered as background bands.
-  const regionsForDay = (day: Dayjs) => {
+  // A declaration rather than a const, so the peek props above can reference it
+  // without depending on where in the component body it happens to sit.
+  function regionsForDay(day: Dayjs) {
     if (!showRegions) return [];
     const bit = 1 << day.day();
     return regions.filter((r) => (r.dayMask & bit) !== 0);
-  };
+  }
 
   const nowMin = now.hour() * 60 + now.minute();
 
@@ -1376,12 +1413,22 @@ function CalendarInner() {
                           background: b.color + "26",
                           borderLeft: `3px solid ${b.color}`,
                           borderRadius: 8,
-                          padding: tinyBlocks ? "0 4px" : compact ? "0 8px" : "4px 8px",
+                          padding: tinyBlocks ? "1px 4px" : "3px 8px",
                           overflow: "hidden",
+                          // Always a column, title first.
+                          //
+                          // Squished blocks used to lay out as a ROW — time,
+                          // then title — which gave the title whatever few
+                          // characters were left after the clock and centred
+                          // the pair vertically. The name is what identifies
+                          // the block, so it goes first and gets every line
+                          // that fits, exactly as Google Calendar does it. A
+                          // short block simply shows fewer lines of it.
                           display: "flex",
-                          flexDirection: compact || tinyBlocks ? "row" : "column",
-                          alignItems: compact || tinyBlocks ? "center" : "stretch",
-                          gap: compact ? 6 : 0,
+                          flexDirection: "column",
+                          alignItems: "stretch",
+                          justifyContent: "flex-start",
+                          gap: 0,
                           cursor: "pointer",
                           // Two kinds of fade, for two different meanings.
                           // A generated occurrence is a preview of a repeat —
@@ -1399,40 +1446,45 @@ function CalendarInner() {
                                 : 1,
                         }}
                       >
-                        {/* When only one of the two fits, show the NAME.
-                            A 45px week column on a phone previously showed
-                            "09:00" and dropped the title — but the block's
-                            position in the grid already says when it is, and
-                            the time is the only thing the layout can express
-                            on its own. The name is the part that identifies
-                            which commitment you're looking at. */}
-                        {!tinyBlocks && (
-                          <span
-                            style={{
-                              fontSize: 11,
-                              color: b.color,
-                              fontWeight: 700,
-                              lineHeight: 1.2,
-                              fontVariantNumeric: "tabular-nums",
-                              flexShrink: 0,
-                            }}
-                          >
-                            {b.start.format("HH:mm")}
-                          </span>
-                        )}
+                        {/* Title first, wrapping into however many lines the
+                            block's height allows. `WebkitLineClamp` is what
+                            turns "as many lines as fit" into a clean cut with
+                            an ellipsis rather than a half-height row of text
+                            sliced through the middle. */}
                         <span
                           style={{
-                            fontSize: tinyBlocks ? 10 : compact ? 11.5 : 12,
+                            fontSize: tinyBlocks ? 10 : compact ? 11 : 12,
                             color: TEXT.primary,
-                            lineHeight: 1.2,
+                            fontWeight: 600,
+                            lineHeight: 1.22,
                             overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: compact || tinyBlocks ? "nowrap" : "normal",
+                            display: "-webkit-box",
+                            WebkitBoxOrient: "vertical",
+                            WebkitLineClamp: titleLines(height, tinyBlocks),
+                            wordBreak: "break-word",
                             minWidth: 0,
                           }}
                         >
                           {b.title}
                         </span>
+                        {/* The time only earns a line once the title has had
+                            the room it needs. The block's position already
+                            conveys when it is. */}
+                        {!tinyBlocks && !compact && (
+                          <span
+                            style={{
+                              fontSize: 10.5,
+                              color: b.color,
+                              fontWeight: 700,
+                              lineHeight: 1.25,
+                              fontVariantNumeric: "tabular-nums",
+                              flexShrink: 0,
+                              marginTop: 1,
+                            }}
+                          >
+                            {b.start.format("HH:mm")}
+                          </span>
+                        )}
                       </div>
                     );
                   })}

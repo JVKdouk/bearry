@@ -7,7 +7,6 @@ import {
   Checkbox,
   Drawer,
   Input,
-  InputNumber,
   Popconfirm,
   Popover,
   Segmented,
@@ -17,7 +16,6 @@ import {
 import {
   BulbOutlined,
   CalendarOutlined,
-  ClockCircleOutlined,
   CloseOutlined,
   DeleteOutlined,
   FlagFilled,
@@ -34,7 +32,7 @@ import { useUI } from "@/store/ui";
 import { useSync } from "@/store/sync";
 import { useIsOffline } from "@/store/network";
 import { useCollection, useRecord } from "@/store/hooks";
-import { LIFE_AREAS, PRIORITY_COLOR, durationLabel } from "@/lib/format";
+import { LIFE_AREAS, PRIORITY_COLOR } from "@/lib/format";
 import { SchedulePopover, type ScheduleValue } from "@/components/SchedulePopover";
 import { nextQuarterHour, taskToEvent, taskToNote } from "@/lib/convert";
 import { SURFACE } from "@/lib/theme";
@@ -97,6 +95,13 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   const [newStep, setNewStep] = useState("");
   // Controlled so "Done" can close it; an uncontrolled Popover has no such hook.
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  /**
+   * What's being created. Notes are deliberately not offered: everything here
+   * is either something you do or something that happens, and a third kind
+   * with neither property was a choice people had to make before they knew
+   * what the thing was. An existing task can still be converted to a note.
+   */
+  const [createKind, setCreateKind] = useState<"task" | "event">("task");
 
   /**
    * Dependencies (§7.4). Stored as Link rows with `linkType: "blocks"`, where
@@ -201,6 +206,9 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       d = dayjs(defaults.deadline);
     }
     setDraft(base);
+    // A time supplied by the caller (tapping a calendar slot) means an event is
+    // the likelier intent, so start there rather than making them switch.
+    setCreateKind(defaults?.startTime ? "event" : "task");
     setDate(d);
     setTime(t);
     setDuration(dur);
@@ -329,10 +337,33 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
     closePanel();
   }
 
+  /**
+   * Create the thing, as whichever kind was chosen.
+   *
+   * An event needs a time to exist at all — it occupies a slot whether or not
+   * you act on it — so choosing "event" without one falls back to the next
+   * quarter hour rather than silently creating something with no place on the
+   * calendar.
+   */
   function confirmCreate() {
     const title = (draft.title ?? "").trim();
     if (!title) return;
-    create("todo", { ...draft, title, status: "todo", order: 0 });
+
+    if (createKind === "event") {
+      const start = date && time
+        ? date.hour(time.hour()).minute(time.minute()).second(0).millisecond(0).toDate()
+        : nextQuarterHour();
+      create("calendarEvent", {
+        source: "bearai",
+        title,
+        description: draft.notes ?? null,
+        start: start.toISOString(),
+        end: new Date(start.getTime() + (duration || 30) * 60_000).toISOString(),
+        isFixed: true,
+      });
+    } else {
+      create("todo", { ...draft, title, status: "todo", order: 0 });
+    }
     closePanel();
   }
 
@@ -423,69 +454,6 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
    * is the field the scheduler leans on most, so it gets a one-tap control with
    * presets for the common answers.
    */
-  const durationPill = (
-    <Popover
-      trigger="click"
-      placement="top"
-      content={
-        <div style={{ width: 210 }}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-            {[15, 30, 45, 60, 90, 120].map((m) => (
-              <Button
-                key={m}
-                size="small"
-                type={duration === m ? "primary" : "default"}
-                onClick={() => {
-                  setDuration(m);
-                  patch(schedulePatch(date, time, m));
-                }}
-              >
-                {durationLabel(m)}
-              </Button>
-            ))}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <InputNumber
-              size="small"
-              min={5}
-              max={600}
-              step={5}
-              value={duration}
-              onChange={(n) => {
-                const val = n ?? 30;
-                setDuration(val);
-                patch(schedulePatch(date, time, val));
-              }}
-              style={{ width: 90 }}
-            />
-            <span style={{ fontSize: 12, color: "#7c7c8a" }}>minutes</span>
-          </div>
-        </div>
-      }
-    >
-      <Tooltip title="How long will this take?">
-        <button
-          type="button"
-          style={{
-            border: `1px solid ${SURFACE.border}`,
-            background: "transparent",
-            color: "#a9a9b8",
-            borderRadius: 999,
-            padding: "2px 10px",
-            fontSize: 12,
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 5,
-          }}
-        >
-          <ClockCircleOutlined style={{ fontSize: 11 }} />
-          {durationLabel(duration || 30)}
-        </button>
-      </Tooltip>
-    </Popover>
-  );
-
   const morePopover = (
     <Popover
       trigger="click"
@@ -602,6 +570,19 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
             onChange={(e) => patch({ status: e.target.checked ? "done" : "todo" })}
           />
         )}
+        {/* Task or event, chosen up front — the two behave differently enough
+            that deciding afterwards means re-entering the same information. */}
+        {isCreate && (
+          <Segmented
+            size="small"
+            value={createKind}
+            onChange={(k) => setCreateKind(k as "task" | "event")}
+            options={[
+              { label: "Task", value: "task" },
+              { label: "Event", value: "event" },
+            ]}
+          />
+        )}
         {datePill}
         <div style={{ flex: 1 }} />
         {priorityControl}
@@ -628,7 +609,9 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
         <input
           value={v.title ?? ""}
           onChange={(e) => patch({ title: e.target.value })}
-          placeholder={isCreate ? "What needs doing?" : "Untitled"}
+          placeholder={
+            isCreate ? (createKind === "event" ? "What's happening?" : "What needs doing?") : "Untitled"
+          }
           autoFocus={isCreate || !v.title}
           onKeyDown={(e) => {
             if (isCreate && e.key === "Enter" && canCreate) confirmCreate();
@@ -789,7 +772,6 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
               value: p.id,
             }))}
         />
-        {durationPill}
         <div style={{ flex: 1 }} />
         {!isCreate && (
           <Tooltip
