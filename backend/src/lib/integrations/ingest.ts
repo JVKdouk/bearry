@@ -25,30 +25,46 @@ function hashBlock(block: CanonicalBlock): string {
   return createHash("sha256").update(JSON.stringify(block)).digest("hex");
 }
 
-const ENTITY_FOR: Record<CanonicalBlock["type"], string> = {
-  event: "CalendarEvent",
-  task: "Todo",
-  note: "Note",
-};
+/**
+ * Build the (plaintext) row for a canonical block; the caller encrypts and
+ * writes it.
+ *
+ * There used to be a model-name lookup and a delegate switch here, because the
+ * three types went to three tables with three different names for the body and
+ * two for the time. All that indirection existed to answer a question that no
+ * longer has more than one answer.
+ */
+function toEntityData(block: CanonicalBlock, providerId: string): Record<string, unknown> {
+  const source = providerId === "google-calendar" || providerId === "google-tasks"
+    ? "google"
+    : providerId === "ticktick"
+      ? "ticktick"
+      : "local";
 
-/** Build the (plaintext) entity data for a block; caller encrypts + writes. */
-function toEntityData(block: CanonicalBlock): Record<string, unknown> {
   switch (block.type) {
     case "event":
       return {
-        source: "google", // external calendar events render as fixed/protected (§9.3)
+        kind: "event",
+        source,
         title: block.title,
-        description: block.description ?? null,
+        body: block.description ?? null,
         location: block.location ?? null,
-        start: new Date(block.start),
-        end: new Date(block.end),
+        startTime: new Date(block.start),
+        endTime: new Date(block.end),
+        estimatedDuration: Math.max(
+          1,
+          Math.round((new Date(block.end).getTime() - new Date(block.start).getTime()) / 60_000),
+        ),
+        // External calendar events render as fixed/protected (§9.3).
         isFixed: true,
         recurrenceRule: block.recurrenceRule ?? null,
       };
     case "task":
       return {
+        kind: "task",
+        source,
         title: block.title,
-        notes: block.notes ?? null,
+        body: block.notes ?? null,
         deadline: block.due ? new Date(block.due) : null,
         priority: block.priority ?? "medium",
         status: block.status ?? "todo",
@@ -56,7 +72,7 @@ function toEntityData(block: CanonicalBlock): Record<string, unknown> {
         recurrenceRule: block.recurrenceRule ?? null,
       };
     case "note":
-      return { title: block.title, bodyMarkdown: block.body };
+      return { kind: "note", source, title: block.title, body: block.body };
   }
 }
 
@@ -94,28 +110,21 @@ export async function ingestBlocks(
   // entity model (at most three) rather than one per unchanged block, which is
   // the common case on every re-sync after the first.
   const liveEntityIds = new Set<string>();
-  const idsByModel = new Map<string, string[]>();
+  const candidateIds: string[] = [];
   for (const block of blocks) {
     const existing = existingBySourceId.get(block.sourceId);
     if (!existing || existing.contentHash !== hashBlock(block)) continue;
-    const model = ENTITY_FOR[block.type];
-    const list = idsByModel.get(model) ?? [];
-    list.push(existing.entityId);
-    idsByModel.set(model, list);
+    candidateIds.push(existing.entityId);
   }
-  await Promise.all(
-    [...idsByModel].map(async ([model, ids]) => {
-      const rows = await delegateFor(model).findMany({
-        where: { id: { in: ids } },
-        select: { id: true },
-      });
-      for (const r of rows as { id: string }[]) liveEntityIds.add(r.id);
-    }),
-  );
+  if (candidateIds.length > 0) {
+    const rows = await database.block.findMany({
+      where: { id: { in: candidateIds } },
+      select: { id: true },
+    });
+    for (const r of rows) liveEntityIds.add(r.id);
+  }
 
   for (const block of blocks) {
-    const model = ENTITY_FOR[block.type];
-    const delegate = delegateFor(model);
     const hash = hashBlock(block);
     summary.byType[block.type] = (summary.byType[block.type] ?? 0) + 1;
 
@@ -132,7 +141,7 @@ export async function ingestBlocks(
       continue;
     }
 
-    const data = encryptRecord(model, userId, dek, toEntityData(block));
+    const data = encryptRecord("Block", userId, dek, toEntityData(block, providerId));
 
     if (existing) {
       // Update the previously-ingested entity in place. On failure the entity
@@ -145,11 +154,11 @@ export async function ingestBlocks(
         // overwriting them. Without this, editing an imported event is a lie:
         // the change saves, looks applied, and silently reverts on the next
         // sync. Everything untouched still tracks the source calendar.
-        const writable = await withoutPinnedFields(model, existing.entityId, data);
-        await delegate.update({ where: { id: existing.entityId }, data: writable });
+        const writable = await withoutPinnedFields(existing.entityId, data);
+        await database.block.update({ where: { id: existing.entityId }, data: writable });
         await database.importedItem.update({ where: { id: existing.id }, data: { contentHash: hash } });
       } catch {
-        const recreated = await delegate.create({ data: { ...data, userId }, select: { id: true } });
+        const recreated = await database.block.create({ data: { ...data, userId } as never, select: { id: true } });
         await database.importedItem.update({
           where: { id: existing.id },
           data: { entityId: recreated.id, contentHash: hash },
@@ -157,7 +166,7 @@ export async function ingestBlocks(
       }
       summary.updated += 1;
     } else {
-      const created = await delegate.create({ data: { ...data, userId }, select: { id: true } });
+      const created = await database.block.create({ data: { ...data, userId } as never, select: { id: true } });
       await database.importedItem.create({
         data: {
           userId,
@@ -165,7 +174,9 @@ export async function ingestBlocks(
           accountKey,
           sourceId: block.sourceId,
           blockType: block.type,
-          entityType: model,
+          // Everything imported is a block now; `blockType` above still
+          // records which kind it came in as.
+          entityType: "Block",
           entityId: created.id,
           contentHash: hash,
         },
@@ -178,19 +189,18 @@ export async function ingestBlocks(
 }
 
 /**
- * Drop any field the user has pinned on this entity.
+ * Drop any field the user has pinned on this block.
  *
- * Only CalendarEvent carries pins today (it's the only entity you can edit and
- * also have re-imported), so everything else short-circuits without a query.
+ * Pins used to be an events-only idea because events were the only thing you
+ * could both edit and have re-imported. That was never a property of events —
+ * it was a property of imported things — and imported tasks and notes had the
+ * same problem with no way to express it. Now they all can.
  */
 async function withoutPinnedFields(
-  model: string,
   entityId: string,
   data: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  if (model !== "CalendarEvent") return data;
-
-  const row = await database.calendarEvent.findUnique({
+  const row = await database.block.findUnique({
     where: { id: entityId },
     select: { pinnedFields: true },
   });
@@ -202,10 +212,4 @@ async function withoutPinnedFields(
   return out;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function delegateFor(model: string): any {
-  if (model === "CalendarEvent") return database.calendarEvent;
-  if (model === "Todo") return database.todo;
-  if (model === "Note") return database.note;
-  throw new Error(`No delegate for model ${model}`);
-}
+

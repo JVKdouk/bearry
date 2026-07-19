@@ -10,12 +10,13 @@ const Body = z.object({
 });
 
 /**
- * Gently archive stale tasks without guilt — recoverable (§1.4 p2). This is the
- * one-tap "let go or reschedule" that breaks the doom loop; it never deletes.
+ * Gently archive stale blocks without guilt — recoverable (§1.4 p2). This is
+ * the one-tap "let go or reschedule" that breaks the doom loop; it never
+ * deletes.
  */
 const letGo: Endpoint = async (request) => {
   const { ids, restore } = Body.parse(request.body);
-  const { count } = await database.todo.updateMany({
+  const { count } = await database.block.updateMany({
     where: { id: { in: ids }, userId: request.user.id },
     data: { letGoAt: restore ? null : new Date() },
   });

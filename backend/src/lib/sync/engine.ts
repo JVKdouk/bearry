@@ -12,6 +12,7 @@ import type { RequestCrypto } from "@/src/lib/crypto/requestCrypto";
 import { nextAfter } from "@/src/lib/recurrence/rrule";
 import { SYNCABLES, findSyncable, type SyncableEntity } from "./registry";
 import { needsFullResync } from "./tombstones";
+import { predatesSchemaEpoch } from "./epoch";
 
 export type PullResult = {
   /** New cursor the client stores and sends next time. */
@@ -57,7 +58,10 @@ export async function pull(
   // deletion, so serve a full bootstrap instead of a delta and tell the client
   // to throw away what it has. Downgrading to a full pull here is what makes
   // pruning safe at all.
-  const mustReset = needsFullResync(since, now);
+  // Two independent reasons to distrust a cursor: it may have missed a pruned
+  // deletion, or it may predate the entity layout itself (todo/calendarEvent/
+  // note became block). Either way the only correct answer is a bootstrap.
+  const mustReset = needsFullResync(since, now) || predatesSchemaEpoch(since);
   if (mustReset) since = null;
 
   // Fetch every entity's delta concurrently rather than serially — a full
@@ -226,7 +230,7 @@ async function advanceRecurrence(
   todoId: string,
   writable: Record<string, unknown>,
 ): Promise<Record<string, unknown> | null> {
-  const row = await database.todo.findFirst({
+  const row = await database.block.findFirst({
     where: { id: todoId, userId },
     select: { recurrenceRule: true, deadline: true, startTime: true, endTime: true },
   });

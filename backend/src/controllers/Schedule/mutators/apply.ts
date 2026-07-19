@@ -25,12 +25,12 @@ const apply: Endpoint = async (request) => {
   // Decrypt each source task's title once, then re-encrypt as the event title so
   // the calendar block reads meaningfully while staying sealed at rest.
   const taskIds = [...new Set(blocks.map((b) => b.taskId))];
-  const todoRows = await database.todo.findMany({
+  const todoRows = await database.block.findMany({
     where: { id: { in: taskIds }, userId: request.user.id },
     select: { id: true, title: true },
   });
   const titleById = new Map(
-    crypto.decryptMany("Todo", todoRows as Record<string, unknown>[]).map((t) => [t.id as string, t.title as string]),
+    crypto.decryptMany("Block", todoRows as Record<string, unknown>[]).map((t) => [t.id as string, t.title as string]),
   );
 
   const prepared = blocks.map((b) => {

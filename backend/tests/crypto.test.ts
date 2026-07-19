@@ -56,24 +56,39 @@ test("nonces are never reused across seals", () => {
 });
 
 test("field encryption seals the mapped fields and round-trips", () => {
-  const row = { title: "Dentist", notes: "bring card", estimatedDuration: 30 };
-  const enc = encryptRecord("Todo", "user-1", key, row);
+  const row = { title: "Dentist", body: "bring card", estimatedDuration: 30 };
+  const enc = encryptRecord("Block", "user-1", key, row);
   assert.notEqual(enc.title, "Dentist"); // actually encrypted
   assert.equal(enc.estimatedDuration, 30); // non-sensitive field untouched
-  const dec = decryptRecord("Todo", "user-1", key, enc);
+  const dec = decryptRecord("Block", "user-1", key, enc);
   assert.equal(dec.title, "Dentist");
-  assert.equal(dec.notes, "bring card");
+  assert.equal(dec.body, "bring card");
 });
 
 test("a field ciphertext cannot be replayed onto another user", () => {
-  const enc = encryptRecord("Todo", "user-1", key, { title: "Private" });
-  assert.throws(() => decryptRecord("Todo", "user-2", key, enc));
+  const enc = encryptRecord("Block", "user-1", key, { title: "Private" });
+  assert.throws(() => decryptRecord("Block", "user-2", key, enc));
+});
+
+test("a field ciphertext cannot be replayed onto another field", () => {
+  // The AAD binds the field name as well as the model, which is what stops a
+  // title being lifted into the body column — and is also why merging three
+  // tables needed every row re-sealed rather than just moved.
+  const enc = encryptRecord("Block", "user-1", key, { title: "Private" });
+  assert.throws(() => decryptRecord("Block", "user-1", key, { body: enc.title }));
+});
+
+test("a field ciphertext cannot be opened under a different model", () => {
+  // This is the exact failure the blocks migration had to design around: rows
+  // sealed as Todo could not be read as Block until they were re-sealed.
+  const enc = encryptRecord("Block", "user-1", key, { title: "Private" });
+  assert.throws(() => decryptRecord("Project", "user-1", key, { name: enc.title }));
 });
 
 test("null and undefined fields pass through unencrypted", () => {
-  const enc = encryptRecord("Todo", "user-1", key, { title: null, notes: undefined });
+  const enc = encryptRecord("Block", "user-1", key, { title: null, body: undefined });
   assert.equal(enc.title, null);
-  assert.equal(enc.notes, undefined);
+  assert.equal(enc.body, undefined);
 });
 
 test("DEK wrap/unwrap round-trips and is bound to the user", () => {

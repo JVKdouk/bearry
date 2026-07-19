@@ -29,16 +29,28 @@ export async function planForUser(
     loadPersona(userId),
   ]);
 
-  // Not-done, not-let-go todos (cleartext metadata only). A todo with a
-  // start+end is an already-placed *timed* item (an "event"): it's busy, not
-  // schedulable. Everything else is a candidate the solver can place.
+  // Everything the planner needs, in four reads instead of six.
   //
-  // These six reads are independent of each other, so they go out together.
-  // Run sequentially they cost six round-trips on what is already the slowest
-  // interaction in the app; the work is identical, only the waiting differs.
-  const [todos, alreadyPlanned, events, blocks, depLinks, regions] = await Promise.all([
-    database.todo.findMany({
-      where: { userId, deletedAt: null, letGoAt: null, status: { not: "done" } },
+  // Merging todos and calendar events into one table collapsed the awkward
+  // part of this: "a todo with a start and an end is really an event" used to
+  // be a comment and a filter, and busy time had to be assembled from three
+  // sources that could disagree. Now a block either occupies time or it
+  // doesn't, whatever kind it is.
+  //
+  // These reads are independent, so they go out together. Run sequentially
+  // they cost a round-trip each on what is already the slowest interaction in
+  // the app; the work is identical, only the waiting differs.
+  const [candidates, occupied, busyBlocks, depLinks, regions] = await Promise.all([
+    // Schedulable candidates: actionable, unfinished, not let go. Events and
+    // notes are excluded by kind rather than by inference.
+    database.block.findMany({
+      where: {
+        userId,
+        kind: "task",
+        deletedAt: null,
+        letGoAt: null,
+        status: { not: "done" },
+      },
       select: {
         id: true, estimatedDuration: true, deadline: true, priority: true, category: true,
         startTime: true, endTime: true, desire: true, status: true,
@@ -46,30 +58,23 @@ export async function planForUser(
       },
     }),
 
-    // Tasks that ALREADY have accepted plan blocks are done being scheduled.
-    // Without this, accepting a plan and pressing Plan again re-proposed every
-    // task a second time at different hours — the accepted blocks were counted
-    // as busy, but the tasks behind them still looked unscheduled, so the
-    // planner dutifully found them new homes and you ended up with duplicates.
-    database.calendarEvent.findMany({
+    // Anything that occupies time in the horizon is busy and immovable (§9.3):
+    // meetings, imported events, timed tasks, and the planner's own accepted
+    // blocks. `planForId` marks the last of those, which is also how we know a
+    // task has already been scheduled and shouldn't be proposed again.
+    //
+    // Without that, accepting a plan and pressing Plan again re-proposed every
+    // task at different hours: the accepted blocks counted as busy, but the
+    // tasks behind them still looked unscheduled.
+    database.block.findMany({
       where: {
         userId,
         deletedAt: null,
-        source: "bearai",
-        bearaiTaskId: { not: null },
-        // Anything still ahead of us counts; past blocks shouldn't pin a task
-        // forever if it was never actually done.
-        end: { gt: horizonStart },
+        letGoAt: null,
+        startTime: { not: null, lt: horizonEnd },
+        endTime: { gt: horizonStart },
       },
-      select: { bearaiTaskId: true },
-    }),
-
-    // Everything already on the calendar in the horizon is busy/immovable
-    // (§9.3) — including fixed meetings (source=google / isFixed), which the
-    // solver never schedules over.
-    database.calendarEvent.findMany({
-      where: { userId, deletedAt: null, start: { lt: horizonEnd }, end: { gt: horizonStart } },
-      select: { start: true, end: true, bearaiTaskId: true },
+      select: { startTime: true, endTime: true, planForId: true },
     }),
 
     database.timeBlock.findMany({
@@ -80,7 +85,7 @@ export async function planForUser(
     // Dependencies: "A blocks B" means B can't start until A is finished.
     // Stored as ordinary Link rows (§8.7) so they sync and need no bespoke table.
     database.link.findMany({
-      where: { userId, deletedAt: null, linkType: "blocks", fromType: "todo", toType: "todo" },
+      where: { userId, deletedAt: null, linkType: "blocks", fromType: "block", toType: "block" },
       select: { fromId: true, toId: true },
     }),
 
@@ -90,10 +95,11 @@ export async function planForUser(
       select: { category: true, dayMask: true, start: true, end: true },
     }),
   ]);
-  const timedTodos = todos.filter((t) => t.startTime && t.endTime);
 
+  const busy = occupied.map((b) => ({ start: b.startTime!, end: b.endTime! }));
+  // Tasks with a plan block already on the calendar are done being scheduled.
   const plannedTaskIds = new Set(
-    alreadyPlanned.map((e) => e.bearaiTaskId).filter((id): id is string => !!id),
+    occupied.map((b) => b.planForId).filter((id): id is string => !!id),
   );
 
   // Only tasks that are actually *relevant* to this horizon are candidates.
@@ -109,7 +115,7 @@ export async function planForUser(
   );
   // estimatedDuration <= 0 marks a *reminder* — a date to remember with no work
   // to perform (birthdays, renewals). Those belong on the day, not in a block.
-  const schedulable = todos.filter(
+  const schedulable = candidates.filter(
     (t) =>
       !(t.startTime && t.endTime) &&
       !plannedTaskIds.has(t.id) &&
@@ -133,25 +139,28 @@ export async function planForUser(
    *     has to wait rather than be placed on a guess.
    */
   const finishedIds = new Set<string>(
-    todos.filter((t) => t.status === "done").map((t) => t.id),
+    candidates.filter((t) => t.status === "done").map((t) => t.id),
   );
 
   // When each already-placed blocker actually finishes.
   const placedEnds = new Map<string, Date>();
-  for (const e of events) {
-    if (!e.bearaiTaskId) continue;
-    const prev = placedEnds.get(e.bearaiTaskId);
-    if (!prev || e.end > prev) placedEnds.set(e.bearaiTaskId, e.end);
+  for (const b of occupied) {
+    // A plan block finishes on behalf of the task it is doing; anything else
+    // that occupies time finishes on its own behalf.
+    const owner = b.planForId;
+    if (!owner || !b.endTime) continue;
+    const prev = placedEnds.get(owner);
+    if (!prev || b.endTime > prev) placedEnds.set(owner, b.endTime);
   }
-  for (const t of timedTodos) {
-    if (!t.endTime) continue;
+  for (const t of candidates) {
+    if (!t.startTime || !t.endTime) continue;
     const prev = placedEnds.get(t.id);
     if (!prev || t.endTime > prev) placedEnds.set(t.id, t.endTime);
   }
 
   // Every todo the user still has open — used to tell "blocker we can't schedule
   // yet" apart from "blocker that no longer exists".
-  const knownOpenIds = new Set(todos.map((t) => t.id));
+  const knownOpenIds = new Set(candidates.map((t) => t.id));
 
   const relevantDeps = depLinks.filter(
     (l) =>
@@ -175,14 +184,9 @@ export async function planForUser(
     createdAt: t.createdAt,
   }));
 
-  // Timed todos in the horizon are immovable busy blocks, like calendar events.
-  const timedBusy = timedTodos
-    .filter((t) => t.startTime! < horizonEnd && t.endTime! > horizonStart)
-    .map((t) => ({ start: t.startTime!, end: t.endTime! }));
-
   const input: SchedulerInput = {
     tasks,
-    busy: [...events, ...blocks, ...timedBusy],
+    busy: [...busy, ...busyBlocks],
     workingHours: JSON.parse(profile.workingHours),
     energyWindows: energy.map((e) => ({
       dayMask: e.dayMask, start: e.start, end: e.end, energyLevel: e.energyLevel,
@@ -202,10 +206,10 @@ export async function planForUser(
 }
 
 /**
- * Apply a proposal: write each block as a BearAI CalendarEvent tagged with its
- * source task and the solver's reason. Returns the created block ids so the
- * client (and undo) can track this plan. Title is a lightweight reference — the
- * event's own title is encrypted from the task title by the caller when needed.
+ * Apply a proposal: write each placement as an event block tagged with the task
+ * it is doing time for and the solver's reason. Returns the created ids so the
+ * client (and undo) can track this plan. The title arrives already encrypted
+ * from the endpoint, copied from the task it serves.
  */
 export async function applyPlan(
   userId: string,
@@ -218,26 +222,37 @@ export async function applyPlan(
   // halfway left a partially-applied plan the user could not fully undo.
   // `createManyAndReturn` gives back the ids undo needs while letting Prisma
   // generate them, so no second id format leaks into the table.
-  const created = await database.calendarEvent.createManyAndReturn({
+  const created = await database.block.createManyAndReturn({
     data: blocks.map((b) => ({
       userId,
-      source: "bearai",
+      kind: "event" as const,
+      source: "local" as const,
       title: b.titleCiphertext, // already encrypted by the endpoint
-      start: new Date(b.start),
-      end: new Date(b.end),
+      startTime: new Date(b.start),
+      endTime: new Date(b.end),
+      estimatedDuration: Math.max(
+        1,
+        Math.round((new Date(b.end).getTime() - new Date(b.start).getTime()) / 60_000),
+      ),
       isFixed: false,
-      bearaiTaskId: b.taskId,
+      planForId: b.taskId,
       scheduleReason: b.reason,
     })),
     select: { id: true },
   });
-  return created.map((r) => r.id);
+  return created.map((r: { id: string }) => r.id);
 }
 
-/** Undo: soft-delete BearAI blocks by id (§9.6 one-tap undo). */
+/**
+ * Undo: soft-delete planner-placed blocks by id (§9.6 one-tap undo).
+ *
+ * Scoped to blocks that are actually the planner's output — `planForId` is the
+ * thing that makes a block ours to remove. Matching on source would now also
+ * match everything the user made by hand, since both are `local`.
+ */
 export async function undoBlocks(userId: string, blockIds: string[]): Promise<number> {
-  const { count } = await database.calendarEvent.updateMany({
-    where: { id: { in: blockIds }, userId, source: "bearai" },
+  const { count } = await database.block.updateMany({
+    where: { id: { in: blockIds }, userId, planForId: { not: null } },
     data: { deletedAt: new Date() },
   });
   return count;

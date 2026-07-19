@@ -29,18 +29,26 @@ export async function gatherDigest(
   to.setDate(to.getDate() + (range === "day" ? 1 : 7));
 
   const [eventRows, taskRows, overdueCount, profile] = await Promise.all([
-    database.calendarEvent.findMany({
-      where: { userId, deletedAt: null, start: { gte: from, lt: to } },
-      orderBy: { start: "asc" },
+    // Anything that occupies time in the window, whatever kind — a timed task
+    // is as much a part of your day as a meeting, and the digest was omitting
+    // it purely because it lived in the other table.
+    database.block.findMany({
+      where: {
+        userId,
+        deletedAt: null,
+        letGoAt: null,
+        startTime: { not: null, gte: from, lt: to },
+      },
+      orderBy: { startTime: "asc" },
       take: 50,
     }),
-    database.todo.findMany({
-      where: { userId, deletedAt: null, letGoAt: null, status: { not: "done" }, deadline: { gte: from, lt: to } },
+    database.block.findMany({
+      where: { userId, kind: "task", deletedAt: null, letGoAt: null, status: { not: "done" }, deadline: { gte: from, lt: to } },
       orderBy: [{ priority: "asc" }, { deadline: "asc" }],
       take: 50,
     }),
-    database.todo.count({
-      where: { userId, deletedAt: null, letGoAt: null, status: { not: "done" }, deadline: { lt: startOfDay(now) } },
+    database.block.count({
+      where: { userId, kind: "task", deletedAt: null, letGoAt: null, status: { not: "done" }, deadline: { lt: startOfDay(now) } },
     }),
     database.scheduleProfile.findFirst({ where: { userId, deletedAt: null }, select: { timezone: true } }),
   ]);

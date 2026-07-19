@@ -9,12 +9,12 @@ const listProjects: Endpoint = async (request) => {
     orderBy: { order: "asc" },
   });
 
-  const counts = await database.todo.groupBy({
+  const counts = await database.block.groupBy({
     by: ["projectId"],
     where: { userId: request.user.id, deletedAt: null, status: { not: "done" } },
     _count: { _all: true },
   });
-  const countByProject = new Map(counts.map((c) => [c.projectId, c._count._all]));
+  const countByProject = new Map(counts.map((c: { projectId: string | null; _count: { _all: number } }) => [c.projectId, c._count._all]));
 
   const crypto = await requestCrypto(request, Math.max(rows.length, 1));
   const projects = crypto.decryptMany("Project", rows as Record<string, unknown>[]).map((p) => ({

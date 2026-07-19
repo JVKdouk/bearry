@@ -27,7 +27,7 @@ const enrich: Endpoint = async (request) => {
   // what asking about one does, and an unbounded loop here spends real money.
   chargeAi(userId, todoIds?.length ?? limit);
 
-  const rows = await database.todo.findMany({
+  const rows = await database.block.findMany({
     where: {
       userId,
       deletedAt: null,
@@ -48,7 +48,7 @@ const enrich: Endpoint = async (request) => {
 
   // Titles/notes are encrypted at rest; decrypt in-memory for this request only.
   const crypto = await requestCrypto(request, rows.length);
-  const decrypted = crypto.decryptMany("Todo", rows as unknown as Record<string, unknown>[]);
+  const decrypted = crypto.decryptMany("Block", rows as unknown as Record<string, unknown>[]);
 
   const input: EnrichInput[] = decrypted.map((t) => ({
     id: String(t.id),

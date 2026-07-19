@@ -19,13 +19,13 @@ const firstStep: Endpoint = async (request) => {
   const userId = request.user.id;
   chargeAi(userId, 1);
 
-  const row = await database.todo.findFirst({
+  const row = await database.block.findFirst({
     where: { id: todoId, userId, deletedAt: null },
   });
   if (!row) throw new GenericError("Task not found", 404);
 
   const crypto = await requestCrypto(request, 1);
-  const t = crypto.decrypt("Todo", row as unknown as Record<string, unknown>);
+  const t = crypto.decrypt("Block", row as unknown as Record<string, unknown>);
 
   const suggestion = await suggestFirstSteps(userId, {
     title: String(t.title ?? ""),

@@ -31,7 +31,7 @@ const diagnose: Endpoint = async (request) => {
   const proposal = await planForUser(request.user.id, horizonStart, horizonEnd);
 
   // How much of the capacity maths rests on untouched default estimates.
-  const defaultDurationCount = await database.todo.count({
+  const defaultDurationCount = await database.block.count({
     where: {
       userId: request.user.id,
       deletedAt: null,

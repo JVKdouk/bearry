@@ -65,73 +65,55 @@ const acceptCapture: Endpoint = async (request) => {
   let createdType = type;
   let createdId: string | null = null;
 
-  switch (type) {
-  case "task": {
-    const todo = await database.todo.create({
-      data: crypto.encrypt("Todo", {
-        userId: request.user.id,
-        projectId: projectId ?? null,
-        title,
-        notes: null,
-        deadline: chosenDate ? new Date(chosenDate) : null,
-        estimatedDuration: chosenDuration ?? 30,
-      }),
-      select: { id: true },
-    });
-    createdId = todo.id;
-  
-  break;
-  }
-  case "event": {
-    const start = chosenDate ? new Date(chosenDate) : new Date();
+  // Three creates became one. Accepting a capture used to branch into a
+  // different table per type, with a different field for the body and a
+  // different name for the time — which is why "task" wrote `notes: null` and
+  // dropped the raw text, while "note" kept it.
+  if (type === "task" || type === "event" || type === "note") {
+    const start = chosenDate ? new Date(chosenDate) : null;
     // An explicit start override invalidates the extracted end, which was
     // derived from the old one — fall back to the duration instead.
     const useExtractedEnd = body.date === undefined && fields.endDate;
-    const end = useExtractedEnd
-      ? new Date(fields.endDate)
-      : new Date(start.getTime() + (chosenDuration ?? 60) * 60_000);
-    const event = await database.calendarEvent.create({
-      data: crypto.encrypt("CalendarEvent", {
+    const end =
+      type === "event"
+        ? useExtractedEnd
+          ? new Date(fields.endDate as string)
+          : new Date((start ?? new Date()).getTime() + (chosenDuration ?? 60) * 60_000)
+        : null;
+
+    const created = await database.block.create({
+      data: crypto.encrypt("Block", {
         userId: request.user.id,
-        source: "bearai",
+        kind: type,
+        projectId: type === "task" ? (projectId ?? null) : null,
         title,
-        start,
-        end,
-        isFixed: true, // user-captured commitments are protected by default (§9.3)
+        // The raw capture is kept on every kind now. It was only ever dropped
+        // for tasks because `notes` and `bodyMarkdown` were different columns
+        // and the task branch didn't think to fill one.
+        body: title === String(item.rawContent) ? null : String(item.rawContent),
+        deadline: type === "task" && start ? start : null,
+        startTime: type === "event" ? (start ?? new Date()) : null,
+        endTime: end,
+        estimatedDuration: chosenDuration ?? (type === "event" ? 60 : 30),
+        // User-captured commitments are protected by default (§9.3).
+        isFixed: type === "event",
       }),
       select: { id: true },
     });
-    createdId = event.id;
-  
-  break;
-  }
-  case "note": {
-    const note = await database.note.create({
-      data: crypto.encrypt("Note", {
-        userId: request.user.id,
-        title,
-        bodyMarkdown: String(item.rawContent),
-      }),
-      select: { id: true },
-    });
-    createdId = note.id;
-  
-  break;
-  }
-  default: {
+    createdId = created.id;
+  } else {
     // trash: nothing to materialize, just close the item out.
     createdType = "trash";
   }
-  }
 
-  // Link the new entity back to its capture so provenance is visible (§8.7).
-  // The Link enum names the entity ("todo"), not the capture type ("task").
-  const linkFromType = createdType === "task" ? "todo" : createdType;
+  // Link the new block back to its capture so provenance is visible (§8.7).
+  // The link no longer has to name the kind: everything it can point at on
+  // this side is a block.
   if (createdId) {
     await database.link.create({
       data: {
         userId: request.user.id,
-        fromType: linkFromType as "todo" | "note" | "event",
+        fromType: "block",
         fromId: createdId,
         toType: "capture",
         toId: id,

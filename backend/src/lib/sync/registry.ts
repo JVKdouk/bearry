@@ -28,46 +28,41 @@ export const SYNCABLES: readonly SyncableEntity[] = [
     writable: ["name", "color", "order", "archived"],
   },
   {
-    entity: "todo",
-    model: "Todo",
-    delegate: database.todo,
+    entity: "block",
+    model: "Block",
+    delegate: database.block,
+    // One entity where there were three. `kind` is client-writable because
+    // converting a task into a note or an event is now exactly that write —
+    // no delete, no re-insert, no re-pointing of steps and reminders.
+    //
+    // `pinnedFields` is client-writable on purpose: editing an imported
+    // event's title is the act that pins it, and the client is what knows the
+    // user did that. It names fields, never content, so a bad value can at
+    // worst stop the importer updating a field — never leak or corrupt one.
+    //
+    // `legacyAadModel` is deliberately absent. It says which key a row's
+    // ciphertext is sealed under; a client that could set it could make the
+    // server try to open content under the wrong AAD.
     writable: [
-      "projectId", "parentTodoId", "title", "notes", "status", "priority",
-      "deadline", "startTime", "endTime", "category", "estimatedDuration",
-      "energyDemand", "desire", "chunkable", "minChunk", "maxChunk", "recurrenceRule",
-      "preferredWindows", "letGoAt", "order",
+      "kind", "projectId", "parentId", "title", "body", "location",
+      "status", "priority", "deadline", "startTime", "endTime", "category",
+      "estimatedDuration", "energyDemand", "desire", "chunkable", "minChunk",
+      "maxChunk", "recurrenceRule", "preferredWindows", "letGoAt", "order",
+      "source", "externalId", "pinnedFields", "isFixed", "planForId",
+      "scheduleReason",
     ],
-  },
-  {
-    entity: "note",
-    model: "Note",
-    delegate: database.note,
-    writable: ["title", "bodyMarkdown"],
   },
   {
     entity: "taskStep",
     model: "TaskStep",
     delegate: database.taskStep,
-    writable: ["todoId", "text", "order", "isFirstStep", "done"],
+    writable: ["blockId", "text", "order", "isFirstStep", "done"],
   },
   {
     entity: "link",
     model: "Link",
     delegate: database.link,
     writable: ["fromType", "fromId", "toType", "toId", "linkType"],
-  },
-  {
-    entity: "calendarEvent",
-    model: "CalendarEvent",
-    delegate: database.calendarEvent,
-    // `pinnedFields` is client-writable on purpose: editing an imported
-    // event's title is the act that pins it, and the client is what knows the
-    // user did that. It names fields, never content, so a bad value can at
-    // worst stop the importer updating a field — never leak or corrupt one.
-    writable: [
-      "source", "externalId", "title", "description", "location",
-      "start", "end", "isFixed", "pinnedFields",
-    ],
   },
   {
     entity: "timeBlock",

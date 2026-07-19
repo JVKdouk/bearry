@@ -190,22 +190,18 @@ async function targetTitle(reminder: DueReminder): Promise<string | null> {
   whitelistJobActor(actor);
   const crypto = await jobCrypto(reminder.userId, actor);
 
-  if (reminder.targetType === "event") {
-    const row = await database.calendarEvent.findFirst({
-      where: { id: reminder.targetId, userId: reminder.userId, deletedAt: null },
-    });
-    if (!row) return null;
-    const decrypted = crypto.decrypt("CalendarEvent", row as Record<string, unknown>);
-    return String(decrypted.title ?? "") || null;
-  }
-
-  const row = await database.todo.findFirst({
+  // One lookup for every kind. This used to branch on targetType and query a
+  // different table for each, which meant a reminder pointing at something
+  // that had since been converted from a task to an event silently found
+  // nothing and never fired.
+  const row = await database.block.findFirst({
     where: { id: reminder.targetId, userId: reminder.userId, deletedAt: null },
   });
   if (!row) return null;
-  // A finished task doesn't need reminding about.
+  // A finished or abandoned task doesn't need reminding about. Events have no
+  // "done" of their own, so this only ever excludes what it should.
   if (row.status === "done" || row.letGoAt) return null;
-  const decrypted = crypto.decrypt("Todo", row as Record<string, unknown>);
+  const decrypted = crypto.decrypt("Block", row as Record<string, unknown>);
   return String(decrypted.title ?? "") || null;
 }
 
