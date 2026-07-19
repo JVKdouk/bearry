@@ -12,7 +12,7 @@ import {
   Typography,
 } from "antd";
 import { MailOutlined } from "@ant-design/icons";
-import { api, isOfflineError } from "@/lib/api";
+import { api, isOfflineError, errText } from "@/lib/api";
 import type { DigestStatus } from "@/lib/types";
 
 const { Text } = Typography;
@@ -68,8 +68,8 @@ export function DigestTab() {
     setStatus((s) => (s ? { ...s, ...body } : s));
     try {
       await api.digestSettings(body);
-    } catch {
-      message.error("Couldn't save");
+    } catch (e) {
+      message.error(errText(e, "Couldn't save"));
       await load();
     }
   }
@@ -79,8 +79,8 @@ export function DigestTab() {
     try {
       await api.digestSend();
       message.success("Digest sent to your email");
-    } catch {
-      message.error("Send failed — check the mailer is configured");
+    } catch (e) {
+      message.error(errText(e, "Send failed — check the mailer is configured"));
     } finally {
       setSending(false);
     }

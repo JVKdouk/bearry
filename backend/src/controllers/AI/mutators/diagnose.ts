@@ -4,6 +4,8 @@ import database from "@/core/database";
 import { planForUser } from "@/src/lib/scheduler/service";
 import { diagnosePlan } from "@/src/lib/ai/diagnose";
 
+import { chargeAi } from "@/src/lib/security/aiBudget";
+
 const Body = z.object({
   horizonStart: z.string().datetime().optional(),
   horizonEnd: z.string().datetime().optional(),
@@ -18,6 +20,9 @@ const Body = z.object({
  */
 const diagnose: Endpoint = async (request) => {
   const b = Body.parse(request.body ?? {});
+  // One model call at most, and only to soften the headline — the diagnosis
+  // itself is deterministic, so a refused charge costs nothing but polish.
+  chargeAi(request.user.id, 1);
   const horizonStart = b.horizonStart ? new Date(b.horizonStart) : new Date();
   const horizonEnd = b.horizonEnd
     ? new Date(b.horizonEnd)

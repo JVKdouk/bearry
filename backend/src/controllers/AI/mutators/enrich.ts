@@ -4,6 +4,7 @@ import database from "@/core/database";
 import { requestCrypto } from "@/src/lib/crypto/requestCrypto";
 import { enrichTasks, ENRICHER_VERSION, type EnrichInput } from "@/src/lib/ai/enrich";
 import { aiAvailable } from "@/src/lib/ai/gemini";
+import { chargeAi } from "@/src/lib/security/aiBudget";
 
 const Body = z.object({
   /** Specific tasks, or omit to enrich the ones still on defaults. */
@@ -21,6 +22,10 @@ const Body = z.object({
 const enrich: Endpoint = async (request) => {
   const { todoIds, limit } = Body.parse(request.body ?? {});
   const userId = request.user.id;
+
+  // Charged in items, not requests: asking about fifty tasks costs fifty times
+  // what asking about one does, and an unbounded loop here spends real money.
+  chargeAi(userId, todoIds?.length ?? limit);
 
   const rows = await database.todo.findMany({
     where: {

@@ -25,7 +25,7 @@ import {
 } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
 import isoWeek from "dayjs/plugin/isoWeek";
-import { api } from "@/lib/api";
+import { api, errText } from "@/lib/api";
 import { useCollection } from "@/store/hooks";
 import { useSync } from "@/store/sync";
 import { useUI } from "@/store/ui";
@@ -826,8 +826,8 @@ function CalendarInner() {
             (reminders ? ` · ${reminders} marked as reminders` : ""),
         );
         await runPlan();
-      } catch {
-        message.error("Couldn't estimate tasks");
+      } catch (e) {
+        message.error(errText(e, "Couldn't estimate tasks"));
       } finally {
         setEnriching(false);
       }
@@ -914,8 +914,8 @@ function CalendarInner() {
       // Nothing placed, or a phone (where 7 columns ≈ 45px each is unreadable):
       // open the agenda sheet, which carries the explanation.
       if (p.blocks.length === 0 || isNarrow) setReviewOpen(true);
-    } catch {
-      message.error("Couldn't build a plan");
+    } catch (e) {
+      message.error(errText(e, "Couldn't build a plan"));
     } finally {
       setPlanning(false);
     }
@@ -945,8 +945,8 @@ function CalendarInner() {
       setExcluded(new Set());
       setApplied(true);
       message.success(`${selected.length} block${selected.length === 1 ? "" : "s"} added`);
-    } catch {
-      message.error("Couldn't apply the plan");
+    } catch (e) {
+      message.error(errText(e, "Couldn't apply the plan"));
     } finally {
       setApplying(false);
     }
@@ -958,8 +958,8 @@ function CalendarInner() {
       await pull();
       setApplied(false);
       message.success("Reverted");
-    } catch {
-      message.error("Couldn't undo");
+    } catch (e) {
+      message.error(errText(e, "Couldn't undo"));
     }
   }
 
