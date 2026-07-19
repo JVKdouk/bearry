@@ -61,6 +61,18 @@ interface SyncState {
   hydrated: boolean;
   status: SyncStatus;
   pendingCount: number;
+  /**
+   * Writes the server refused outright, which we gave up retrying.
+   *
+   * Dropping them is right — retrying byte-identical data the server has
+   * already rejected never succeeds and turns the client into a load
+   * generator. But dropping them *silently* means an edit disappears with no
+   * trace outside the console, which in an offline-first app is
+   * indistinguishable from losing the user's work. Surfaced so the UI can say
+   * so, and cleared once acknowledged.
+   */
+  rejected: { entity: string; id: string; message?: string }[];
+  acknowledgeRejected: () => void;
 
   /** Restore local state for this user, then refresh from the server if online. */
   bootstrap: (userId: string) => Promise<void>;
@@ -84,6 +96,19 @@ const pending: Pending = new Map();
 /** Consecutive server rejections per op key, so a poison op can't retry forever. */
 const failures = new Map<string, number>();
 const MAX_OP_ATTEMPTS = 5;
+
+/**
+ * Ops per push request. MUST NOT exceed the server's own cap (currently 500 in
+ * Sync/mutators/push.ts) — it rejects a larger array outright with a 400.
+ *
+ * The client used to send its entire outbox in one request regardless of size.
+ * Below the cap that's ideal: a week offline costs one round-trip. Above it,
+ * every attempt was rejected wholesale and retried forever, so the queue could
+ * never drain — the harder someone had worked offline, the more certainly none
+ * of it synced. Chunking keeps the single-request case intact and makes the
+ * large case merely take several trips.
+ */
+const MAX_OPS_PER_PUSH = 400;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
 
@@ -273,6 +298,7 @@ export const useSync = create<SyncState>((set, get) => {
     hydrated: false,
     status: "idle",
     pendingCount: 0,
+    rejected: [],
 
     /**
      * Cache-first startup. Local state is restored and rendered BEFORE any
@@ -338,6 +364,8 @@ export const useSync = create<SyncState>((set, get) => {
       }
     },
 
+    acknowledgeRejected: () => set({ rejected: [] }),
+
     reset: () => {
       // Logout: wipe both memory and disk. Leaving a cached workspace behind
       // would show the next person to sign in on this device the previous
@@ -355,6 +383,7 @@ export const useSync = create<SyncState>((set, get) => {
         hydrated: false,
         status: "idle",
         pendingCount: 0,
+        rejected: [],
       });
     },
 
@@ -432,7 +461,8 @@ export const useSync = create<SyncState>((set, get) => {
       // is still the identical object we transmitted.
       const sent = new Map<string, PushOp>();
       for (const [key, op] of pending) sent.set(key, op);
-      const batch = Array.from(sent.values());
+      // Oldest first, so a create is applied before anything referencing it.
+      const batch = Array.from(sent.values()).slice(0, MAX_OPS_PER_PUSH);
       try {
         set({ status: "syncing" });
         const { results } = await api.push(batch);
@@ -449,6 +479,9 @@ export const useSync = create<SyncState>((set, get) => {
               failures.delete(key);
               if (pending.get(key) === sent.get(key)) pending.delete(key);
               console.warn(`[sync] dropping op after ${attempts} rejections: ${key} — ${r.message ?? "no detail"}`);
+              set((state) => ({
+                rejected: [...state.rejected, { entity: r.entity, id: r.id, message: r.message }],
+              }));
             } else {
               failures.set(key, attempts);
             }
@@ -473,7 +506,15 @@ export const useSync = create<SyncState>((set, get) => {
         // airplane mode wakes up every couple of seconds to fail.
         if (pending.size && !isOffline()) {
           if (flushTimer) clearTimeout(flushTimer);
-          flushTimer = setTimeout(() => void get().flush(), retryDelay());
+          // A backlog larger than one chunk isn't a failure, it's a queue —
+          // continue straight away rather than serving the retry delay, which
+          // exists to back off from errors. Waiting 2s per chunk would make a
+          // long offline stretch take minutes to drain for no reason.
+          const moreChunksReady = pushBackoff === 0 && pending.size > 0;
+          flushTimer = setTimeout(
+            () => void get().flush(),
+            moreChunksReady ? 0 : retryDelay(),
+          );
         }
       }
     },

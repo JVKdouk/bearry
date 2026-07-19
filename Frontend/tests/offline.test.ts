@@ -141,6 +141,58 @@ test("reconnecting flushes the whole queue as ONE bulk request", async () => {
   assert.equal(useSync.getState().pendingCount, 0);
 });
 
+test("a backlog larger than one request still drains completely", async () => {
+  // The bug this covers: the client sent its whole outbox in one request while
+  // the server rejects anything over 500 ops. A long offline stretch produced a
+  // batch that was refused wholesale and retried forever — the harder someone
+  // had worked offline, the more certainly none of it synced.
+  goOnline();
+  useSync.getState().reset();
+  await useSync.getState().bootstrap("user-a");
+
+  goOffline();
+  const TOTAL = 950;
+  for (let i = 0; i < TOTAL; i++) useSync.getState().create("todo", { title: `bulk ${i}` });
+  await settle();
+  assert.equal(useSync.getState().pendingCount, TOTAL);
+
+  goOnline();
+  calls = [];
+  // Each flush drains one chunk; the store self-reschedules for the rest.
+  for (let i = 0; i < 10 && useSync.getState().pendingCount > 0; i++) {
+    await useSync.getState().flush();
+    await settle();
+  }
+
+  assert.equal(useSync.getState().pendingCount, 0, "the queue never drained");
+
+  const pushes = calls.filter((c) => c.url.includes("/sync/push"));
+  assert.ok(pushes.length > 1, "a backlog this size must take several requests");
+  for (const p of pushes) {
+    const ops = (p.body as { ops: unknown[] }).ops;
+    assert.ok(ops.length <= 500, `sent ${ops.length} ops — the server would reject this`);
+  }
+});
+
+test("a small queue still goes up as exactly one request", async () => {
+  // Chunking must not cost the common case its single round-trip.
+  goOnline();
+  useSync.getState().reset();
+  await useSync.getState().bootstrap("user-a");
+
+  goOffline();
+  for (let i = 0; i < 30; i++) useSync.getState().create("todo", { title: `small ${i}` });
+  await settle();
+
+  goOnline();
+  calls = [];
+  await useSync.getState().flush();
+
+  const pushes = calls.filter((c) => c.url.includes("/sync/push"));
+  assert.equal(pushes.length, 1);
+  assert.equal(useSync.getState().pendingCount, 0);
+});
+
 test("no push is attempted while offline", async () => {
   goOnline();
   useSync.getState().reset();
