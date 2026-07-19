@@ -1315,6 +1315,23 @@ function CalendarInner() {
                         data-block="event"
                         title={`${b.start.format("HH:mm")}–${b.end.format("HH:mm")}  ${b.title}`}
                         onMouseDown={(e) => e.stopPropagation()}
+                        // Tasks are openable, so they must be reachable without a
+                        // mouse. Events are display-only and stay out of the tab
+                        // order rather than becoming focus stops that do nothing.
+                        role={b.kind === "todo" ? "button" : undefined}
+                        tabIndex={b.kind === "todo" ? 0 : undefined}
+                        aria-label={
+                          b.kind === "todo"
+                            ? `${b.title}, ${b.start.format("HH:mm")} to ${b.end.format("HH:mm")}`
+                            : undefined
+                        }
+                        onKeyDown={(e) => {
+                          if (b.kind !== "todo") return;
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openEditTask(b.masterId);
+                          }
+                        }}
                         onClick={() => {
                           // Opens the stored task even from a future occurrence:
                           // editing a repeating task edits the series.

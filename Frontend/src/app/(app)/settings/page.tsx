@@ -137,6 +137,8 @@ function SettingsInner() {
     return (
       <div>
         <button
+          type="button"
+          aria-label="Back to settings"
           onClick={() => setOpenKey(null)}
           style={{
             display: "flex",
@@ -166,6 +168,8 @@ function SettingsInner() {
         {SECTIONS.map((s) => (
           <button
             key={s.key}
+            type="button"
+            aria-label={`${s.label} — ${s.blurb}`}
             onClick={() => setOpenKey(s.key)}
             style={{
               display: "flex",

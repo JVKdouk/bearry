@@ -148,6 +148,21 @@ export function MonthGrid({
                       <div
                         key={b.id}
                         title={`${b.start.format("HH:mm")} ${b.title}`}
+                        role={b.kind === "todo" ? "button" : undefined}
+                        tabIndex={b.kind === "todo" ? 0 : undefined}
+                        aria-label={
+                          b.kind === "todo"
+                            ? `${b.title} at ${b.start.format("HH:mm")}`
+                            : undefined
+                        }
+                        onKeyDown={(e) => {
+                          if (b.kind !== "todo") return;
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onOpenTask(b.masterId);
+                          }
+                        }}
                         onClick={(e) => {
                           e.stopPropagation();
                           if (b.kind === "todo") onOpenTask(b.masterId);
