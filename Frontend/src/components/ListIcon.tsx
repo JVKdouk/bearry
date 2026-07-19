@@ -9,10 +9,8 @@
  * emoji where the settings page shows a dot.
  */
 
-import * as Lucide from "lucide-react";
-import { parseIcon, lucideComponentName } from "@/lib/listIcon";
-
-type LucideComponent = React.ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
+import { parseIcon } from "@/lib/listIcon";
+import { LUCIDE_MAP } from "@/lib/lucideMap";
 
 export function ListIcon({
   icon,
@@ -37,11 +35,10 @@ export function ListIcon({
   }
 
   if (parsed?.kind === "lucide") {
-    const Component = (Lucide as unknown as Record<string, LucideComponent>)[
-      lucideComponentName(parsed.name)
-    ];
-    // A name that no longer exists in Lucide falls through to the dot rather
-    // than rendering a blank square, which reads as a broken image.
+    // Only the curated set is bundled (lib/lucideMap). A name outside it —
+    // including a stale one from an older client — falls through to the dot
+    // rather than rendering a blank square, which reads as a broken image.
+    const Component = LUCIDE_MAP[parsed.name];
     if (Component) return <Component size={size} color={color} strokeWidth={2.2} />;
   }
 

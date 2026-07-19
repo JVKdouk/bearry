@@ -1,13 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { Button, Empty, Grid, Segmented, Tooltip } from "antd";
 import { PlusOutlined, SettingOutlined, UndoOutlined } from "@ant-design/icons";
-import { ListDrawer } from "@/components/ListDrawer";
 import { useCollection } from "@/store/hooks";
 import { useSync } from "@/store/sync";
 import { ListIcon } from "@/components/ListIcon";
 import { TEXT } from "@/lib/theme";
+
+const ListDrawer = dynamic(
+  () => import("@/components/ListDrawer").then((m) => m.ListDrawer),
+  { ssr: false },
+);
 
 /**
  * Everything about your lists in one place.

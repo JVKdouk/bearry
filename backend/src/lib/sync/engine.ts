@@ -140,6 +140,19 @@ function pickWritable(s: SyncableEntity, data: Record<string, unknown>): Record<
   return out;
 }
 
+/**
+ * Should completing this op roll a recurring task forward instead of closing it?
+ *
+ * A pure gate, extracted because the bug it now guards was invisible: the
+ * entity was renamed from "todo" to "block" in the migration and this
+ * comparison wasn't, so every recurring task silently stopped advancing on
+ * completion and no test noticed. Only blocks recur, and only on being marked
+ * done.
+ */
+export function shouldAdvanceRecurrence(entity: string, status: unknown): boolean {
+  return entity === "block" && status === "done";
+}
+
 /** Apply one client op with LWW conflict resolution. */
 async function applyOp(
   userId: string,
@@ -152,7 +165,12 @@ async function applyOp(
   try {
     if (op.op === "delete") {
       if (!op.id) return { entity: op.entity, id: "", status: "error", message: "delete needs id" };
-      const existing = await s.delegate.findFirst({ where: { id: op.id, userId } });
+      // Only `version` is needed; selecting the whole row pulled every
+      // encrypted blob across the wire just to bump a counter.
+      const existing = await s.delegate.findFirst({
+        where: { id: op.id, userId },
+        select: { version: true },
+      });
       if (!existing) return { entity: op.entity, id: op.id, status: "applied" }; // already gone
       const updated = await s.delegate.update({
         where: { id: op.id },
@@ -172,7 +190,7 @@ async function applyOp(
     // Offline you'll briefly see the task as done, then it reappears on its next
     // date once the write syncs — which is exactly what happened: that
     // occurrence *was* completed, and the series continues.
-    if (s.entity === "todo" && op.id && writable.status === "done") {
+    if (op.id && shouldAdvanceRecurrence(s.entity, writable.status)) {
       const advanced = await advanceRecurrence(userId, op.id, writable);
       if (advanced) writable = advanced;
     }
@@ -278,7 +296,7 @@ async function shiftReminders(
   to: Date,
 ): Promise<void> {
   const reminders = await database.reminder.findMany({
-    where: { userId, targetType: "todo", targetId: todoId, deletedAt: null },
+    where: { userId, targetType: "block", targetId: todoId, deletedAt: null },
     select: { id: true, offsetMinutes: true },
   });
   if (reminders.length === 0) return;

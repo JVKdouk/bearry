@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Button, Tooltip } from "antd";
 import {
@@ -13,8 +14,14 @@ import {
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useCollection } from "@/store/hooks";
-import { ListDrawer } from "@/components/ListDrawer";
+// antd's ColorPicker lives in here; lazy so it stays out of the layout bundle
+// that every page pays for. It only renders when a list is created or edited.
 import { ListIcon } from "@/components/ListIcon";
+
+const ListDrawer = dynamic(
+  () => import("@/components/ListDrawer").then((m) => m.ListDrawer),
+  { ssr: false },
+);
 
 function Row({
   active,

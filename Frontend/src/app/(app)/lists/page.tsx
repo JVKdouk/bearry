@@ -6,6 +6,7 @@ import { Button, Empty, Segmented, Tooltip } from "antd";
 import {
   AppstoreOutlined,
   BarsOutlined,
+  CheckCircleOutlined,
   FieldTimeOutlined,
   PlusOutlined,
 } from "@ant-design/icons";
@@ -137,17 +138,25 @@ function ListLayout({ todos }: { todos: Block[] }) {
     .filter((t) => t.status !== "done")
     .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || (a.deadline ?? "~").localeCompare(b.deadline ?? "~"));
   if (open.length === 0) {
-    // One line, no illustration, no second button.
-    //
-    // The previous empty state was a 48px icon, a caption and an "Add a task"
-    // button — directly under a header that already had "New task" in it. Two
-    // buttons doing the same thing is a decision the user has to make for no
-    // reason, and the whole arrangement pushed an empty list to fill a phone
-    // screen with nothing.
+    // An icon and a line, sitting near the top rather than stretched down a
+    // whole phone screen. The button is gone on purpose — the header already
+    // has "New task" a few pixels above this, and a second one right below it
+    // was two controls for one action. What was wrong before was the wall of
+    // empty space and the duplicate button, not the illustration.
     return (
-      <p style={{ color: TEXT.tertiary, fontSize: 13.5, margin: "18px 2px 0" }}>
-        Nothing here yet.
-      </p>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 10,
+          padding: "48px 20px",
+          color: TEXT.tertiary,
+        }}
+      >
+        <CheckCircleOutlined style={{ fontSize: 40, color: "#2f2f3d" }} />
+        <span style={{ fontSize: 13.5 }}>Nothing here yet.</span>
+      </div>
     );
   }
   return (

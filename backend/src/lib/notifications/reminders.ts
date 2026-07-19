@@ -153,9 +153,9 @@ export async function deliverDueReminders(now = new Date()): Promise<SweepResult
         continue;
       }
 
-      const title = await targetTitle(reminder);
-      if (!title) {
-        // The task was deleted or completed after the reminder was set.
+      const target = await targetInfo(reminder);
+      if (!target) {
+        // The target was deleted or completed after the reminder was set.
         // Reminding someone about something that no longer exists is worse
         // than staying quiet.
         result.skipped += 1;
@@ -164,9 +164,11 @@ export async function deliverDueReminders(now = new Date()): Promise<SweepResult
 
       await sendToUser(reminder.userId, {
         title: "Bearry",
-        body: reminderBody(title, reminder.offsetMinutes),
-        url: reminder.targetType === "event" ? "/calendar" : "/today",
-        tag: `${reminder.targetType}:${reminder.targetId}`,
+        body: reminderBody(target.title, reminder.offsetMinutes),
+        // Every reminder now targets a block, so the deep link follows its
+        // kind rather than a targetType that is always the same string.
+        url: target.kind === "event" ? "/calendar" : "/today",
+        tag: `block:${reminder.targetId}`,
       });
       result.sent += 1;
     } catch (err) {
@@ -179,13 +181,15 @@ export async function deliverDueReminders(now = new Date()): Promise<SweepResult
 }
 
 /**
- * The target's title, decrypted, or null when there's nothing to remind about.
+ * The target's title and kind, or null when there's nothing to remind about.
  *
  * Runs under a whitelisted job actor: this legitimately touches many users in
  * one sweep, which is exactly the shape the decrypt limiter is built to stop,
  * so it needs its own audited ceiling rather than a session's.
  */
-async function targetTitle(reminder: DueReminder): Promise<string | null> {
+async function targetInfo(
+  reminder: DueReminder,
+): Promise<{ title: string; kind: string } | null> {
   const actor = `job:reminders`;
   whitelistJobActor(actor);
   const crypto = await jobCrypto(reminder.userId, actor);
@@ -202,7 +206,8 @@ async function targetTitle(reminder: DueReminder): Promise<string | null> {
   // "done" of their own, so this only ever excludes what it should.
   if (row.status === "done" || row.letGoAt) return null;
   const decrypted = crypto.decrypt("Block", row as Record<string, unknown>);
-  return String(decrypted.title ?? "") || null;
+  const title = String(decrypted.title ?? "");
+  return title ? { title, kind: String(row.kind) } : null;
 }
 
 const TICK_MS = Number(process.env.REMINDER_TICK_SECONDS ?? 60) * 1000;

@@ -15,10 +15,22 @@ export function useCollection<K extends EntityName>(
   );
 }
 
+/**
+ * One record, and re-renders only when *that* record changes.
+ *
+ * Selecting the whole entity map and indexing it (the previous shape) meant a
+ * component watching a single task re-rendered on every mutation of any task —
+ * the map's identity changes on each write. Selecting the record directly is
+ * stable: an unchanged row keeps its reference through the immutable update, so
+ * zustand's equality check skips the render. On a drawer open over a large
+ * board this is the difference between the editor re-rendering on its own
+ * keystrokes and re-rendering on everyone's.
+ */
 export function useRecord<K extends EntityName>(
   entity: K,
   id: string | null | undefined,
 ): SyncEntities[K] | undefined {
-  const map = useSync((s) => s.collections[entity]);
-  return id ? (map[id] as unknown as SyncEntities[K] | undefined) : undefined;
+  return useSync((s) =>
+    id ? (s.collections[entity][id] as unknown as SyncEntities[K] | undefined) : undefined,
+  );
 }

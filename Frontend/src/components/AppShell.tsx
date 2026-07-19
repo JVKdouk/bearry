@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Avatar,
@@ -37,9 +38,17 @@ import { fitPopups } from "@/lib/popoverFit";
 import { createDefaultsNow } from "@/lib/createContext";
 import { SyncBadge } from "./SyncBadge";
 import { SidebarLists } from "./SidebarLists";
-import { TaskDetail } from "./TaskDetail";
 import { BottomNav } from "./BottomNav";
 import { ACCENT } from "@/lib/theme";
+
+// The task drawer is heavy — it pulls the schedule popover, the reminder picker
+// and the RRULE engine — and only appears on interaction, so it has no business
+// in every page's first load. Lazy and client-only: the layout ships without
+// it, and the chunk is fetched (idle-prefetched) before the first open. No SSR
+// because it renders nothing until opened anyway.
+const TaskDetail = dynamic(() => import("./TaskDetail").then((m) => m.TaskDetail), {
+  ssr: false,
+});
 
 const PRIMARY = [
   { key: "/today", icon: <SunOutlined />, label: "Today" },
@@ -188,7 +197,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
    * and "only on phones" is how this comes back.
    */
   useEffect(() => {
-    const run = () => fitPopups(document);
+    // Coalesce to one run per frame. The observer fires on every attribute
+    // change under <body> — which includes every re-render's style churn while
+    // typing in a drawer — and running querySelectorAll synchronously on each
+    // was turning a keystroke into dozens of full-document scans. A rAF batches
+    // a burst of mutations into a single fit, after layout has settled.
+    let scheduled = false;
+    const run = () => {
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        fitPopups(document);
+      });
+    };
 
     // Popups portal to the end of <body>; the attribute filter catches antd
     // repositioning an already-mounted one.
@@ -292,7 +314,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
 
     const stopWatching = watchConnectivity(drain);
-    const t = setInterval(() => void pull(), 60_000);
+
+    /**
+     * Poll only while the tab is actually being looked at.
+     *
+     * A backgrounded tab polling every 60s is pure waste: nobody is reading the
+     * result, and at scale a workspace left open in a dozen tabs is a dozen
+     * pointless requests a minute against the sync endpoint. Freshness isn't
+     * lost — becoming visible triggers an immediate pull, so what you'd have
+     * seen from the missed ticks arrives the moment you look back.
+     */
+    let t: ReturnType<typeof setInterval> | null = null;
+    const startPolling = () => {
+      if (t === null) t = setInterval(() => void pull(), 60_000);
+    };
+    const stopPolling = () => {
+      if (t !== null) {
+        clearInterval(t);
+        t = null;
+      }
+    };
+    const onVisibility = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        void pull(); // catch up on whatever changed while hidden
+        startPolling();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    if (!document.hidden) startPolling();
+
     const onFocus = () => {
       // Returning to the tab is also a good moment to retry — the browser's
       // `online` event doesn't fire for a server that was down and came back.
@@ -301,8 +353,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
     window.addEventListener("focus", onFocus);
     return () => {
-      clearInterval(t);
+      stopPolling();
       stopWatching();
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
     };
   }, [user, pull, loadIntegrations, loadCaptures, attachCaptures, flushCaptures, flushSync]);
