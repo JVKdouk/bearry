@@ -109,10 +109,26 @@ const MAX_PULL_PAGES = 50;
 async function drainPages(
   since: string | undefined,
   merge: (changes: Record<string, unknown[]>) => void,
+  onReset: () => void,
 ): Promise<string> {
   let cursor = since;
+  let didReset = false;
   for (let page = 0; page < MAX_PULL_PAGES; page++) {
     const res = await api.pull(cursor);
+
+    // Our cursor predated the server's tombstone retention, so deletions we
+    // never saw may already be pruned. The server has answered with a full
+    // bootstrap instead of a delta; anything we hold that isn't in it was
+    // deleted while we were away. Clearing first is what stops those rows
+    // lingering — and, worse, being pushed back as if they were new.
+    //
+    // Only on the first page: later pages of the same bootstrap would wipe the
+    // rows the earlier ones just delivered.
+    if (res.reset && !didReset) {
+      didReset = true;
+      onReset();
+    }
+
     merge(res.changes);
     cursor = res.cursor;
     if (!res.hasMore) break;
@@ -286,7 +302,9 @@ export const useSync = create<SyncState>((set, get) => {
       try {
         // With local state we only need the delta; without it, a full pull.
         const since = hadLocal ? (get().cursor ?? undefined) : undefined;
-        const cursor = await drainPages(since, mergeChanges);
+        const cursor = await drainPages(since, mergeChanges, () =>
+          set({ collections: emptyCollections() }),
+        );
         set({
           cursor,
           pendingCount: pending.size, // a restored outbox must show in the badge
@@ -308,7 +326,9 @@ export const useSync = create<SyncState>((set, get) => {
       const since = get().cursor ?? undefined;
       try {
         set({ status: "syncing" });
-        const cursor = await drainPages(since, mergeChanges);
+        const cursor = await drainPages(since, mergeChanges, () =>
+          set({ collections: emptyCollections() }),
+        );
         set({ cursor, status: pending.size ? "queued" : "idle" });
         await persistCollections();
       } catch {

@@ -174,7 +174,13 @@ export const api = {
   // `hasMore` is set when the server capped the page; the caller keeps pulling
   // from the returned cursor until it clears.
   pull: (since?: string) =>
-    request<{ cursor: string; changes: Record<string, unknown[]>; hasMore?: boolean }>(
+    request<{
+      cursor: string;
+      changes: Record<string, unknown[]>;
+      hasMore?: boolean;
+      /** The server discarded our cursor; this response is a fresh bootstrap. */
+      reset?: true;
+    }>(
       "/sync/pull",
       { query: { since } },
     ),
