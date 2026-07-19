@@ -77,7 +77,9 @@ model Project {
   order    Float   @default(0)
   archived Boolean @default(false)
 
-  blocks Block[]
+  blocks   Block[]
+  members  ProjectMember[]
+  invites  ProjectInvite[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -87,6 +89,72 @@ model Project {
   // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
   @@index([userId, updatedAt])
   @@map("projects")
+}
+
+/// Who can do what to a shared list.
+///
+/// The list's content stays encrypted under the owner's key and the server
+/// reads it exactly as it reads the owner's personal lists — so sharing is an
+/// access-control problem, not a crypto one. A `write` member operates on the
+/// list as if it were their own; a `view` member can only read it.
+enum MemberRole {
+  view
+  write
+}
+
+/// A person, other than the owner, who has access to a project.
+///
+/// The owner has no row here — ownership is `Project.userId`, and a membership
+/// row is precisely "someone who isn't the owner but was let in". Removing a
+/// member is a soft-delete like everything else, so it syncs and can be undone.
+model ProjectMember {
+  id        String     @id @default(cuid())
+  projectId String
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// The member. Cascade so deleting the account cleans up their memberships.
+  userId    String
+  user      User       @relation("MemberOf", fields: [userId], references: [id], onDelete: Cascade)
+  role      MemberRole @default(write)
+  /// Who invited them — for "added by" and for auditing who granted access.
+  invitedById String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  /// One membership per person per project — re-accepting an invite updates the
+  /// existing row rather than stacking duplicates.
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@index([userId, updatedAt])
+  @@map("project_members")
+}
+
+/// A share link. Anyone holding the token can join the project with `role`.
+///
+/// The token is the secret; it's random and long, and access is granted by
+/// possessing it (like a calendar-subscribe URL). An invite can be revoked
+/// (`revokedAt`) or time-boxed (`expiresAt`) without disturbing anyone who has
+/// already accepted — accepting mints a durable ProjectMember, so the link and
+/// the membership are independent.
+model ProjectInvite {
+  id          String     @id @default(cuid())
+  projectId   String
+  project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// The secret in the URL. Unique and indexed for the accept lookup.
+  token       String     @unique
+  role        MemberRole @default(write)
+  createdById String
+
+  expiresAt DateTime?
+  revokedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@map("project_invites")
 }
 
 /// One row for everything that lives on a board or a calendar.
@@ -109,6 +177,12 @@ model Block {
   project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   kind BlockKind @default(task)
+
+  /// Who added this row. Cleartext, and only meaningful in a shared list:
+  /// every block is owned (userId) by the list owner so it decrypts under one
+  /// key, but "added by Bob" needs to survive that. Null for personal content,
+  /// where the owner is the only author anyway.
+  createdById String?
 
   /// Self-referential nesting (§7.2). UI caps depth ~4–5.
   parentId String?

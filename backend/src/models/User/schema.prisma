@@ -19,9 +19,10 @@ model User {
 
   created_at DateTime @default(now())
 
-  sessions Session[]
-  projects Project[]
-  blocks   Block[]
+  sessions    Session[]
+  projects    Project[]
+  blocks      Block[]
+  memberships ProjectMember[] @relation("MemberOf")
 
   @@map("users")
 }

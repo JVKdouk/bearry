@@ -98,6 +98,16 @@ export const SYNCABLES: readonly SyncableEntity[] = [
     delegate: database.setting,
     writable: ["key", "value"],
   },
+  {
+    // Read-only from the client's side: memberships are created and changed
+    // through the sharing endpoints, never pushed. An empty writable list means
+    // any client attempt to write one is refused, which is what we want — a
+    // client can't grant itself a role by faking a row.
+    entity: "projectMember",
+    model: "ProjectMember",
+    delegate: database.projectMember,
+    writable: [],
+  },
 ];
 
 export function findSyncable(entity: string): SyncableEntity | undefined {
