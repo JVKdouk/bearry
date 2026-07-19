@@ -12,7 +12,7 @@
  * authority for writes is worth more than local responsiveness.
  */
 
-import { occurrences, parseRRule } from "./recurrence/rrule";
+import { describeRRule, occurrences, parseRRule } from "./recurrence/rrule";
 
 export interface RepeatOption {
   label: string;
@@ -34,40 +34,20 @@ export function repeatOptions(weekdayIndex: number): RepeatOption[] {
   ];
 }
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const DAY_CODES: Record<string, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
-
 /**
- * Describe a stored rule in words. Mirrors the server's `describeRRule`; kept
- * intentionally forgiving — an unrecognised rule shows a neutral "Repeats"
- * rather than claiming a schedule it can't verify.
+ * Describe a stored rule in words.
+ *
+ * Delegates to the mirrored engine rather than re-deriving the wording. This
+ * used to be a second, hand-rolled parser living beside the real one — which
+ * meant a rule the engine refused could still be described confidently, and the
+ * two could disagree about what a rule meant.
+ *
+ * An unrecognised rule shows a neutral "Repeats" rather than claiming a
+ * schedule it can't verify.
  */
 export function describeRepeat(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const body = raw.trim().replace(/^RRULE:/i, "");
-  const parts = new Map<string, string>();
-  for (const seg of body.split(";")) {
-    const [k, v] = seg.split("=");
-    if (k && v !== undefined) parts.set(k.toUpperCase(), v);
-  }
-  const freq = (parts.get("FREQ") ?? "").toUpperCase();
-  const n = Number(parts.get("INTERVAL") ?? 1) || 1;
-  const every = (unit: string) => (n === 1 ? `Every ${unit}` : `Every ${n} ${unit}s`);
-
-  if (freq === "DAILY") return every("day");
-  if (freq === "WEEKLY") {
-    const days = (parts.get("BYDAY") ?? "")
-      .split(",")
-      .map((c) => DAY_CODES[c.trim().toUpperCase()])
-      .filter((d) => d !== undefined);
-    const isWeekdays = days.length === 5 && !days.includes(0) && !days.includes(6);
-    if (isWeekdays && n === 1) return "Every weekday";
-    const named = days.map((d) => DAY_NAMES[d]).join(", ");
-    return named ? `${every("week")} on ${named}` : every("week");
-  }
-  if (freq === "MONTHLY") return every("month");
-  if (freq === "YEARLY") return every("year");
-  return "Repeats";
+  return describeRRule(raw) ?? "Repeats";
 }
 
 /** The shape expansion needs — satisfied by both CalendarEvent and Todo rows. */

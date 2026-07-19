@@ -33,6 +33,16 @@ export interface Rule {
   interval: number;
   /** Weekday numbers (0 = Sunday … 6 = Saturday). WEEKLY only. */
   byDay?: number[];
+  /**
+   * A positional weekday within the period — "the second Tuesday", "the last
+   * Friday". MONTHLY/YEARLY only, and mutually exclusive with `byMonthDay`.
+   *
+   * `nth` is 1..4 counting forward or -1 counting back from the end. Fifth
+   * occurrences are excluded deliberately: most months don't have one, so
+   * "every 5th Monday" is a rule that mostly doesn't fire, which reads as
+   * broken rather than as intended.
+   */
+  byDayPos?: { nth: number; day: number };
   /** Day-of-month (1–31). MONTHLY/YEARLY only. */
   byMonthDay?: number;
   /** Month (1–12). YEARLY only. */
@@ -92,15 +102,28 @@ export function parseRRule(raw: string | null | undefined): Rule | null {
 
   if (parts.has("BYDAY")) {
     const codes = parts.get("BYDAY")!.split(",").map((c) => c.trim().toUpperCase());
-    const days: number[] = [];
-    for (const c of codes) {
-      // Positional forms ("2FR" = second Friday) are outside the subset — bail
-      // rather than silently treat it as "every Friday".
-      if (!(c in DAY_CODES)) return null;
-      days.push(DAY_CODES[c]);
+    if (codes.length === 0) return null;
+
+    // A positional form ("2FR" = second Friday, "-1SU" = last Sunday) means
+    // something quite different from a plain weekday list, so the two are not
+    // mixed: a single positional code, or a list of plain ones, never both.
+    const positional = codes[0].match(/^(-?\d)([A-Z]{2})$/);
+    if (positional) {
+      if (codes.length > 1) return null; // "1MO,2TU" isn't a shape we implement
+      const nth = Number(positional[1]);
+      const day = DAY_CODES[positional[2]];
+      // 5th and -2nd..-5th are refused: they'd skip most months, which reads as
+      // a broken rule rather than an intended one.
+      if (day === undefined || nth === 0 || nth > 4 || nth < -1) return null;
+      rule.byDayPos = { nth, day };
+    } else {
+      const days: number[] = [];
+      for (const c of codes) {
+        if (!(c in DAY_CODES)) return null;
+        days.push(DAY_CODES[c]);
+      }
+      rule.byDay = [...new Set(days)].sort((a, b) => a - b);
     }
-    if (days.length === 0) return null;
-    rule.byDay = [...new Set(days)].sort((a, b) => a - b);
   }
 
   if (parts.has("BYMONTHDAY")) {
@@ -127,9 +150,14 @@ export function parseRRule(raw: string | null | undefined): Rule | null {
     rule.until = u;
   }
 
-  // BYDAY only means something for weekly recurrence here; on other frequencies
-  // it changes the expansion in ways this subset doesn't implement.
+  // A plain weekday list only means something for weekly recurrence here; on
+  // other frequencies it changes the expansion in ways this subset doesn't
+  // implement. The positional form is the opposite — it's meaningless weekly.
   if (rule.byDay && freq !== "WEEKLY") return null;
+  if (rule.byDayPos && freq !== "MONTHLY" && freq !== "YEARLY") return null;
+  // "The second Tuesday" and "the 14th" are two different answers to the same
+  // question; a rule carrying both is ambiguous, so refuse it.
+  if (rule.byDayPos && rule.byMonthDay !== undefined) return null;
 
   // WKST names the day a week starts on, which only changes anything when whole
   // weeks are being counted — i.e. WEEKLY with INTERVAL > 1. Expansion anchors
@@ -148,6 +176,7 @@ export function formatRRule(rule: Rule): string {
   const parts: string[] = [`FREQ=${rule.freq}`];
   if (rule.interval > 1) parts.push(`INTERVAL=${rule.interval}`);
   if (rule.byDay?.length) parts.push(`BYDAY=${rule.byDay.map((d) => CODE_FOR_DAY[d]).join(",")}`);
+  if (rule.byDayPos) parts.push(`BYDAY=${rule.byDayPos.nth}${CODE_FOR_DAY[rule.byDayPos.day]}`);
   if (rule.byMonthDay) parts.push(`BYMONTHDAY=${rule.byMonthDay}`);
   if (rule.byMonth) parts.push(`BYMONTH=${rule.byMonth}`);
   if (rule.count) parts.push(`COUNT=${rule.count}`);
@@ -167,6 +196,32 @@ function parseIcsDate(v: string): Date | null {
 function toIcsDate(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+/**
+ * The nth occurrence of a weekday in a month, or null when it doesn't exist.
+ *
+ * `nth` counts forward from 1, or -1 for the last one. Returning null rather
+ * than clamping is the whole point: a month with only four Tuesdays has no
+ * fifth, and inventing one would put the task on a date nobody chose.
+ *
+ * `month` may be out of range (e.g. 13) — the Date constructor rolls it into
+ * the following year, which is what the callers' loops rely on.
+ */
+function nthWeekdayOf(year: number, month: number, nth: number, weekday: number): Date | null {
+  if (nth === -1) {
+    const last = new Date(year, month + 1, 0); // day 0 of next month = last of this
+    const shift = (last.getDay() - weekday + 7) % 7;
+    return new Date(year, month, last.getDate() - shift);
+  }
+
+  const first = new Date(year, month, 1);
+  const shift = (weekday - first.getDay() + 7) % 7;
+  const dayOfMonth = 1 + shift + (nth - 1) * 7;
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  if (dayOfMonth > daysInMonth) return null;
+  return new Date(year, month, dayOfMonth);
 }
 
 /** Copy `from`'s wall-clock time onto `day`. */
@@ -240,6 +295,23 @@ export function occurrences(
     return out;
   }
 
+  if (rule.freq === "MONTHLY" && rule.byDayPos) {
+    const { nth, day } = rule.byDayPos;
+    for (let m = 0, steps = 0; steps < MAX_STEPS; m += rule.interval, steps++) {
+      const found = nthWeekdayOf(
+        dtStart.getFullYear(),
+        dtStart.getMonth() + m,
+        nth,
+        day,
+      );
+      if (!found) continue; // no 4th Tuesday this month — skip, never invent one
+      const d = withTimeOf(found, dtStart);
+      if (d >= dtStart && push(d) === "stop") break;
+      if (hardEnd && d > hardEnd) break;
+    }
+    return out;
+  }
+
   if (rule.freq === "MONTHLY") {
     const dom = rule.byMonthDay ?? dtStart.getDate();
     for (let m = 0, steps = 0; steps < MAX_STEPS; m += rule.interval, steps++) {
@@ -260,6 +332,19 @@ export function occurrences(
 
   // YEARLY
   const month = (rule.byMonth ?? dtStart.getMonth() + 1) - 1;
+
+  if (rule.byDayPos) {
+    const { nth, day } = rule.byDayPos;
+    for (let y = 0, steps = 0; steps < MAX_STEPS; y += rule.interval, steps++) {
+      const found = nthWeekdayOf(dtStart.getFullYear() + y, month, nth, day);
+      if (!found) continue;
+      const d = withTimeOf(found, dtStart);
+      if (d >= dtStart && push(d) === "stop") break;
+      if (hardEnd && d > hardEnd) break;
+    }
+    return out;
+  }
+
   const dom = rule.byMonthDay ?? dtStart.getDate();
   for (let y = 0, steps = 0; steps < MAX_STEPS; y += rule.interval, steps++) {
     const year = dtStart.getFullYear() + y;
@@ -270,6 +355,23 @@ export function occurrences(
     if (hardEnd && d > hardEnd) break;
   }
   return out;
+}
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+const DAY_NAMES_FULL = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+];
+
+const ORDINALS: Record<number, string> = { 1: "first", 2: "second", 3: "third", 4: "fourth" };
+
+/** "second Tuesday" / "last Friday" — how people say it out loud. */
+function ordinalWeekday(pos: { nth: number; day: number }): string {
+  const which = pos.nth === -1 ? "last" : (ORDINALS[pos.nth] ?? `${pos.nth}th`);
+  return `${which} ${DAY_NAMES_FULL[pos.day]}`;
 }
 
 /** The next occurrence strictly after `after`, or null if the series has ended. */
@@ -318,11 +420,19 @@ export function describeRRule(raw: string | null | undefined): string | null {
   case "MONTHLY": {
     text = every("month");
     if (rule.byMonthDay) text += ` on day ${rule.byMonthDay}`;
-  
-  break;
+    if (rule.byDayPos) text += ` on the ${ordinalWeekday(rule.byDayPos)}`;
+    break;
   }
   default: {
     text = every("year");
+    if (rule.byMonth) {
+      const monthName = MONTH_NAMES[rule.byMonth - 1];
+      text += rule.byDayPos
+        ? ` on the ${ordinalWeekday(rule.byDayPos)} of ${monthName}`
+        : ` on ${monthName} ${rule.byMonthDay ?? ""}`.trimEnd();
+    } else if (rule.byDayPos) {
+      text += ` on the ${ordinalWeekday(rule.byDayPos)}`;
+    }
   }
   }
 

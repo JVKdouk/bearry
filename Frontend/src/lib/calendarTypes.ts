@@ -24,4 +24,12 @@ export interface CalendarBlock {
   color: string;
   /** A generated occurrence rather than the stored row itself. */
   isRepeat?: boolean;
+  /**
+   * For events: the task this block was scheduled for, when the planner made
+   * it. Clicking such a block should open the *task* — the block is a
+   * representation of it, not a separate thing to inspect.
+   */
+  bearaiTaskId?: string | null;
+  /** For events: where it came from, which decides whether it can be edited. */
+  source?: "google" | "bearai";
 }

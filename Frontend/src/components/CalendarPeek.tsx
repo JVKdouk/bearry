@@ -38,7 +38,7 @@ interface Props {
   textPrimary: string;
   textTertiary: string;
   todayBg: string;
-  /** Titles are unreadable in a 45px week column, so blocks show time only. */
+  /** In a 45px week column only one of time/name fits; the name wins. */
   tiny: boolean;
 }
 
@@ -139,10 +139,14 @@ export function CalendarPeek({
                       lineHeight: 1.2,
                     }}
                   >
-                    <span style={{ color: b.color, fontWeight: 700, fontSize: 10.5 }}>
-                      {b.start.format("HH:mm")}
-                    </span>
-                    {!tiny && <span style={{ marginLeft: 5 }}>{b.title}</span>}
+                    {/* Matches the live grid: when only one fits, the name
+                        wins — the block's position already conveys the time. */}
+                    {!tiny && (
+                      <span style={{ color: b.color, fontWeight: 700, fontSize: 10.5 }}>
+                        {b.start.format("HH:mm")}
+                      </span>
+                    )}
+                    <span style={{ marginLeft: tiny ? 0 : 5 }}>{b.title}</span>
                   </div>
                 );
               })}

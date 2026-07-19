@@ -26,7 +26,8 @@ import {
   SunOutlined,
 } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
-import { repeatOptions } from "@/lib/recurrence";
+import { describeRepeat, repeatOptions } from "@/lib/recurrence";
+import { CustomRepeat } from "@/components/CustomRepeat";
 import { durationLabel } from "@/lib/format";
 
 const MUTED = "#a9a9b8";
@@ -105,8 +106,31 @@ export function monthMatrix(month: Dayjs): Dayjs[][] {
   return weeks;
 }
 
+/** Sentinel for the "Custom…" entry, which opens an editor rather than setting a rule. */
+const CUSTOM = "__custom__";
+
+/**
+ * The repeat choices for this date, including whatever rule is already set.
+ *
+ * A rule that matches no preset — imported from TickTick, or built here
+ * previously — must still appear as the selected option. Without this the
+ * Select renders blank and picking anything silently discards a rule the user
+ * never chose to change.
+ */
+function repeatChoices(date: Dayjs, current: string | null) {
+  const presets = repeatOptions(date.day());
+  const options = presets.map((o) => ({ label: o.label, value: o.rule }));
+
+  if (current && !presets.some((o) => o.rule === current)) {
+    options.push({ label: describeRepeat(current) ?? "Custom", value: current });
+  }
+  options.push({ label: "Custom…", value: CUSTOM });
+  return options;
+}
+
 export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
   const [tab, setTab] = useState<"date" | "duration">("date");
+  const [editingRepeat, setEditingRepeat] = useState(false);
   const [month, setMonth] = useState<Dayjs>(value.date ?? startOfToday());
 
   const now = dayjs();
@@ -254,20 +278,34 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
 
           {/* Repeat needs a date to repeat FROM, so it only appears with one —
               a rule with no anchor is dead config. */}
-          {value.date && (
+          {value.date && !editingRepeat && (
             <Row icon={<RetweetOutlined />} label="Repeat">
               <Select
                 size="small"
                 variant="borderless"
                 value={value.recurrenceRule ?? null}
-                onChange={(rule) => onChange({ recurrenceRule: rule })}
-                options={repeatOptions(value.date.day()).map((o) => ({
-                  label: o.label,
-                  value: o.rule,
-                }))}
-                style={{ width: 150 }}
+                onChange={(rule) => {
+                  if (rule === CUSTOM) setEditingRepeat(true);
+                  else onChange({ recurrenceRule: rule });
+                }}
+                options={repeatChoices(value.date, value.recurrenceRule ?? null)}
+                style={{ width: 168 }}
               />
             </Row>
+          )}
+
+          {value.date && editingRepeat && (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${LINE}` }}>
+              <CustomRepeat
+                value={value.recurrenceRule ?? null}
+                anchor={value.date}
+                onChange={(rule) => {
+                  onChange({ recurrenceRule: rule });
+                  setEditingRepeat(false);
+                }}
+                onCancel={() => setEditingRepeat(false)}
+              />
+            </div>
           )}
         </>
       ) : (

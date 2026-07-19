@@ -79,6 +79,12 @@ export interface CalendarEventEntity extends SyncBase {
   start: string;
   end: string;
   isFixed: boolean;
+  /**
+   * Set on imported recurring events. Not client-writable — the sync whitelist
+   * excludes it deliberately, since an imported series is owned by its source
+   * calendar and a local edit would be overwritten on the next sync.
+   */
+  recurrenceRule?: string | null;
 }
 
 export interface TimeBlock extends SyncBase {

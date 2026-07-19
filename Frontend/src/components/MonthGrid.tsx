@@ -23,7 +23,8 @@ export function MonthGrid({
   blocks,
   onPickDay,
   onCreate,
-  onOpenTask,
+  onOpenBlock,
+  roomForTime,
 }: {
   days: Dayjs[];
   anchor: Dayjs;
@@ -31,7 +32,9 @@ export function MonthGrid({
   blocks: CalendarBlock[];
   onPickDay: (d: Dayjs) => void;
   onCreate: (d: Dayjs) => void;
-  onOpenTask: (id: string) => void;
+  onOpenBlock: (block: CalendarBlock) => void;
+  /** False on narrow screens, where a cell can't fit a time AND a name. */
+  roomForTime: boolean;
 }) {
   // One pass over the blocks instead of filtering per cell — a month is up to
   // 42 cells, and re-scanning every block for each of them is needless work.
@@ -148,24 +151,19 @@ export function MonthGrid({
                       <div
                         key={b.id}
                         title={`${b.start.format("HH:mm")} ${b.title}`}
-                        role={b.kind === "todo" ? "button" : undefined}
-                        tabIndex={b.kind === "todo" ? 0 : undefined}
-                        aria-label={
-                          b.kind === "todo"
-                            ? `${b.title} at ${b.start.format("HH:mm")}`
-                            : undefined
-                        }
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`${b.title} at ${b.start.format("HH:mm")}`}
                         onKeyDown={(e) => {
-                          if (b.kind !== "todo") return;
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
                             e.stopPropagation();
-                            onOpenTask(b.masterId);
+                            onOpenBlock(b);
                           }
                         }}
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (b.kind === "todo") onOpenTask(b.masterId);
+                          onOpenBlock(b);
                         }}
                         style={{
                           display: "flex",
@@ -183,9 +181,17 @@ export function MonthGrid({
                           textOverflow: "ellipsis",
                         }}
                       >
-                        <span style={{ opacity: 0.8, fontVariantNumeric: "tabular-nums" }}>
-                          {b.start.format("HH:mm")}
-                        </span>
+                        {/* A month cell is ~90px wide, so the time and the
+                            title compete for the same few characters. The title
+                            is what identifies the thing — "09:00" tells you
+                            nothing about which of your commitments it is — so
+                            the time is dropped first when space is short and
+                            kept only where the cell is genuinely wide. */}
+                        {roomForTime && (
+                          <span style={{ opacity: 0.8, fontVariantNumeric: "tabular-nums" }}>
+                            {b.start.format("HH:mm")}
+                          </span>
+                        )}
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{b.title}</span>
                       </div>
                     ))}

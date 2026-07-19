@@ -10,6 +10,7 @@ import {
   Grid,
   Popover,
   Segmented,
+  Spin,
   Switch,
   Tag,
   Tooltip,
@@ -35,6 +36,7 @@ import { ACCENT, SUNSET, SURFACE, TEXT, WARM } from "@/lib/theme";
 import { expandRange } from "@/lib/recurrence";
 import { CalendarPeek } from "@/components/CalendarPeek";
 import { MonthGrid } from "@/components/MonthGrid";
+import { EventDetail } from "@/components/EventDetail";
 import type { CalendarBlock as Block, CalendarView as View } from "@/lib/calendarTypes";
 import {
   pinchDistance,
@@ -174,6 +176,23 @@ function CalendarInner() {
   const [applied, setApplied] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(null);
+  /**
+   * The diagnosis arrives after the plan does. It used to render above the
+   * schedule, so when it landed it inserted three cards and shoved everything
+   * you were reading down the screen. It lives behind its own tab now: the
+   * schedule never moves, and the tab label carries the loading/count state
+   * instead.
+   */
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [reviewTab, setReviewTab] = useState<"plan" | "warnings">("plan");
+
+  const warningCount = diagnosis?.findings.length ?? 0;
+  // Says what it knows rather than showing an empty count while it's thinking.
+  const warningsLabel = diagnosing
+    ? "Warnings…"
+    : warningCount === 0
+      ? "No warnings"
+      : `${warningCount} warning${warningCount === 1 ? "" : "s"}`;
   const [enriching, setEnriching] = useState(false);
 
   // In day view the single column header just repeats the title, so drop it.
@@ -248,6 +267,8 @@ function CalendarInner() {
       end: dayjs(o.end),
       color: o.item.source === "google" ? "#4096ff" : WARM,
       isRepeat: o.isRepeat,
+      bearaiTaskId: o.item.bearaiTaskId ?? null,
+      source: o.item.source,
     }));
 
     // A repeating task shows its future occurrences too, but only the stored
@@ -302,6 +323,7 @@ function CalendarInner() {
    * scrolls vertically — stealing a slightly-diagonal scroll makes the
    * calendar feel like it's fighting you.
    */
+  const [openEventId, setOpenEventId] = useState<string | null>(null);
   const [swipeDx, setSwipeDx] = useState(0);
   const [settling, setSettling] = useState(false);
   const swipeRef = useRef<{
@@ -396,6 +418,20 @@ function CalendarInner() {
   }
 
   const blocksForDay = (day: Dayjs) => blocks.filter((b) => b.start.isSame(day, "day"));
+
+  /**
+   * What tapping a block opens.
+   *
+   * A planner-generated event is a *representation* of a task, so it opens the
+   * task rather than a detail sheet describing the block. Everything else opens
+   * as itself. Tapping an event used to do nothing at all, which read as the app
+   * being broken rather than the item being uneditable.
+   */
+  function openBlock(b: Block) {
+    if (b.kind === "todo") return openEditTask(b.masterId);
+    if (b.bearaiTaskId) return openEditTask(b.bearaiTaskId);
+    setOpenEventId(b.masterId);
+  }
 
   /** Everything the peek needs to look like the grid without behaving like it. */
   const peekProps = {
@@ -707,13 +743,16 @@ function CalendarInner() {
       setProposal(p);
       setExcluded(new Set());
       setDiagnosis(null);
+      setDiagnosing(true);
+      setReviewTab("plan");
 
       // Explain the plan — especially when it's empty. This is what turns
       // "couldn't place 21" into "you have no working hours on Saturday".
       void api
         .aiDiagnose({ horizonStart: from.toISOString(), horizonEnd: rangeEnd.toISOString() })
         .then(setDiagnosis)
-        .catch(() => {});
+        .catch(() => setDiagnosis({ headline: "", findings: [], usedAI: false }))
+        .finally(() => setDiagnosing(false));
 
       // Nothing placed, or a phone (where 7 columns ≈ 45px each is unreadable):
       // open the agenda sheet, which carries the explanation.
@@ -993,7 +1032,8 @@ function CalendarInner() {
               endTime: d.hour(9).minute(30).second(0).millisecond(0).toISOString(),
             })
           }
-          onOpenTask={(id) => openEditTask(id)}
+          onOpenBlock={openBlock}
+          roomForTime={!isNarrow}
         />
         </div>
       ) : (
@@ -1315,28 +1355,18 @@ function CalendarInner() {
                         data-block="event"
                         title={`${b.start.format("HH:mm")}–${b.end.format("HH:mm")}  ${b.title}`}
                         onMouseDown={(e) => e.stopPropagation()}
-                        // Tasks are openable, so they must be reachable without a
-                        // mouse. Events are display-only and stay out of the tab
-                        // order rather than becoming focus stops that do nothing.
-                        role={b.kind === "todo" ? "button" : undefined}
-                        tabIndex={b.kind === "todo" ? 0 : undefined}
-                        aria-label={
-                          b.kind === "todo"
-                            ? `${b.title}, ${b.start.format("HH:mm")} to ${b.end.format("HH:mm")}`
-                            : undefined
-                        }
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`${b.title}, ${b.start.format("HH:mm")} to ${b.end.format("HH:mm")}`}
                         onKeyDown={(e) => {
-                          if (b.kind !== "todo") return;
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            openEditTask(b.masterId);
+                            openBlock(b);
                           }
                         }}
-                        onClick={() => {
-                          // Opens the stored task even from a future occurrence:
-                          // editing a repeating task edits the series.
-                          if (b.kind === "todo") openEditTask(b.masterId);
-                        }}
+                        // A future occurrence opens the stored row: editing a
+                        // repeating item edits the series.
+                        onClick={() => openBlock(b)}
                         style={{
                           position: "absolute",
                           top,
@@ -1352,7 +1382,7 @@ function CalendarInner() {
                           flexDirection: compact || tinyBlocks ? "row" : "column",
                           alignItems: compact || tinyBlocks ? "center" : "stretch",
                           gap: compact ? 6 : 0,
-                          cursor: b.kind === "todo" ? "pointer" : "default",
+                          cursor: "pointer",
                           // A generated occurrence is a preview of a repeat, not
                           // something that exists yet — reading as slightly
                           // lighter keeps it from being mistaken for a
@@ -1360,33 +1390,40 @@ function CalendarInner() {
                           opacity: b.isRepeat ? 0.72 : 1,
                         }}
                       >
-                        <span
-                          style={{
-                            fontSize: tinyBlocks ? 10 : 11,
-                            color: b.color,
-                            fontWeight: 700,
-                            lineHeight: 1.2,
-                            fontVariantNumeric: "tabular-nums",
-                            flexShrink: 0,
-                          }}
-                        >
-                          {b.start.format("HH:mm")}
-                        </span>
+                        {/* When only one of the two fits, show the NAME.
+                            A 45px week column on a phone previously showed
+                            "09:00" and dropped the title — but the block's
+                            position in the grid already says when it is, and
+                            the time is the only thing the layout can express
+                            on its own. The name is the part that identifies
+                            which commitment you're looking at. */}
                         {!tinyBlocks && (
                           <span
                             style={{
-                              fontSize: compact ? 11.5 : 12,
-                              color: TEXT.primary,
+                              fontSize: 11,
+                              color: b.color,
+                              fontWeight: 700,
                               lineHeight: 1.2,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: compact ? "nowrap" : "normal",
-                              minWidth: 0,
+                              fontVariantNumeric: "tabular-nums",
+                              flexShrink: 0,
                             }}
                           >
-                            {b.title}
+                            {b.start.format("HH:mm")}
                           </span>
                         )}
+                        <span
+                          style={{
+                            fontSize: tinyBlocks ? 10 : compact ? 11.5 : 12,
+                            color: TEXT.primary,
+                            lineHeight: 1.2,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: compact || tinyBlocks ? "nowrap" : "normal",
+                            minWidth: 0,
+                          }}
+                        >
+                          {b.title}
+                        </span>
                       </div>
                     );
                   })}
@@ -1499,6 +1536,12 @@ function CalendarInner() {
         </div>
       </div>
       )}
+
+      <EventDetail
+        eventId={openEventId}
+        onClose={() => setOpenEventId(null)}
+        isMobile={isNarrow}
+      />
 
       {/* floating planning bar */}
       {proposal && (
@@ -1655,11 +1698,45 @@ function CalendarInner() {
               {durationLabel(selectedMinutes) || "0m"}
               {cap ? ` · ${utilization}% of capacity` : ""}
             </p>
+
+            {/* The warnings count lives in the label, so the diagnosis
+                arriving changes a few characters here rather than inserting
+                cards above the schedule you were reading. */}
+            <Segmented
+              block
+              size="small"
+              value={reviewTab}
+              onChange={(v) => setReviewTab(v as "plan" | "warnings")}
+              style={{ marginTop: 12 }}
+              options={[
+                { label: "Schedule", value: "plan" },
+                { label: warningsLabel, value: "warnings" },
+              ]}
+            />
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", padding: "14px 18px 18px" }}>
+            {reviewTab === "warnings" && diagnosing && (
+              <div style={{ display: "grid", placeItems: "center", padding: "36px 0", gap: 10 }}>
+                <Spin />
+                <span style={{ fontSize: 12.5, color: TEXT.secondary }}>
+                  Checking this plan over…
+                </span>
+              </div>
+            )}
+
+            {reviewTab === "warnings" && !diagnosing && warningCount === 0 && (
+              <div style={{ display: "grid", placeItems: "center", padding: "36px 18px", gap: 8 }}>
+                <span style={{ fontSize: 26 }}>✓</span>
+                <span style={{ fontSize: 13.5, color: TEXT.primary }}>Nothing to flag</span>
+                <span style={{ fontSize: 12.5, color: TEXT.secondary, textAlign: "center" }}>
+                  This plan fits your rhythm and your capacity.
+                </span>
+              </div>
+            )}
+
             {/* why the plan looks the way it does */}
-            {diagnosis && diagnosis.findings.length > 0 && (
+            {reviewTab === "warnings" && diagnosis && diagnosis.findings.length > 0 && (
               <div style={{ marginBottom: 20, display: "flex", flexDirection: "column", gap: 8 }}>
                 {diagnosis.findings.map((f, i) => {
                   const tone =
@@ -1694,9 +1771,11 @@ function CalendarInner() {
               </div>
             )}
 
-            {proposalByDay.length === 0 && !diagnosis && <Empty description="Nothing proposed" />}
+            {reviewTab === "plan" && proposalByDay.length === 0 && (
+              <Empty description="Nothing proposed" />
+            )}
 
-            {proposalByDay.map(([dayKey, list]) => (
+            {reviewTab === "plan" && proposalByDay.map(([dayKey, list]) => (
               <div key={dayKey} style={{ marginBottom: 20 }}>
                 <div className="section-label" style={{ marginBottom: 8 }}>
                   {dayjs(dayKey).format("dddd, MMM D")}
