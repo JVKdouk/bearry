@@ -44,6 +44,24 @@ export function isOfflineError(err: unknown): err is OfflineError {
   return err instanceof OfflineError;
 }
 
+/**
+ * The message to show a user for a failed call.
+ *
+ * When the server explained itself, say what it said. "You've used this hour's
+ * AI suggestions" tells someone what to do next; the generic fallback that
+ * replaced it left them retrying into the same wall with no idea why. When the
+ * request never left the device, say that instead — it's a different problem
+ * with a different remedy.
+ *
+ * The fallback is for genuinely unknown failures, where a specific-sounding
+ * message would be a guess.
+ */
+export function errText(err: unknown, fallback: string): string {
+  if (isOfflineError(err)) return "You're offline — this will retry when you're back.";
+  if (err instanceof ApiError && err.message) return err.message;
+  return fallback;
+}
+
 async function request<T>(
   path: string,
   opts: { method?: string; body?: unknown; query?: Record<string, string | undefined> } = {},
@@ -86,7 +104,7 @@ async function request<T>(
   if (!res.ok) {
     const fromBody =
       data && typeof data === "object" && "message" in data
-        ? String((data as { message: unknown }).message)
+        ? String((data).message)
         : null;
     // HTTP/2 has no status text, so res.statusText is often "" — never surface
     // an empty error to the user; fall back to the status code.
@@ -156,7 +174,13 @@ export const api = {
   // `hasMore` is set when the server capped the page; the caller keeps pulling
   // from the returned cursor until it clears.
   pull: (since?: string) =>
-    request<{ cursor: string; changes: Record<string, unknown[]>; hasMore?: boolean }>(
+    request<{
+      cursor: string;
+      changes: Record<string, unknown[]>;
+      hasMore?: boolean;
+      /** The server discarded our cursor; this response is a fresh bootstrap. */
+      reset?: true;
+    }>(
       "/sync/pull",
       { query: { since } },
     ),
@@ -271,7 +295,8 @@ export const api = {
     }),
 
   // Digest
-  digestStatus: () => request<DigestStatus>("/digest/status"),
+  digestStatus: (verify?: boolean) =>
+    request<DigestStatus>("/digest/status", verify ? { query: { verify: "1" } } : {}),
   digestSettings: (body: {
     daily?: boolean;
     weekly?: boolean;

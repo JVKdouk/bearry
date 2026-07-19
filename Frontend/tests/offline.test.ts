@@ -30,28 +30,52 @@ function jsonResponse(body: unknown) {
     status: 200,
     statusText: "OK",
     headers: new Map(),
-    text: async () => JSON.stringify(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
   } as unknown as Response;
 }
 
-globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+/**
+ * Narrow fetch's very wide argument types to what api.ts actually sends: a URL
+ * string and a JSON string body. Blindly `String()`-ing a Request object or a
+ * FormData would silently produce "[object Object]" and the mock would match no
+ * route while looking like it worked.
+ */
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
+function jsonBodyOf(init?: RequestInit): unknown {
+  if (typeof init?.body !== "string") return undefined;
+  return JSON.parse(init.body);
+}
+
+globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   if (!networkUp) throw new TypeError("Failed to fetch");
-  const url = String(input);
-  const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+  const url = urlOf(input);
+  const body = jsonBodyOf(init);
   calls.push({ url, method: init?.method ?? "GET", body });
 
   if (url.includes("/sync/push")) {
     const ops = (body as { ops: { entity: string; id?: string }[] }).ops;
-    return jsonResponse({
-      results: ops.map((o) => ({ entity: o.entity, id: o.id ?? "srv", status: "applied", version: 1 })),
-    });
+    return Promise.resolve(
+      jsonResponse({
+        results: ops.map((o) => ({
+          entity: o.entity,
+          id: o.id ?? "srv",
+          status: "applied",
+          version: 1,
+        })),
+      }),
+    );
   }
   if (url.includes("/sync/pull")) {
-    return jsonResponse({ cursor: new Date().toISOString(), changes: {}, hasMore: false });
+    return Promise.resolve(jsonResponse({ cursor: new Date().toISOString(), changes: {}, hasMore: false }));
   }
-  if (url.includes("/capture/")) return jsonResponse({ id: "c1" });
-  return jsonResponse({});
-}) as typeof fetch;
+  if (url.includes("/capture/")) return Promise.resolve(jsonResponse({ id: "c1" }));
+  return Promise.resolve(jsonResponse({}));
+});
 
 function goOffline() {
   networkUp = false;
@@ -114,6 +138,58 @@ test("reconnecting flushes the whole queue as ONE bulk request", async () => {
   const pushes = calls.filter((c) => c.url.includes("/sync/push"));
   assert.equal(pushes.length, 1, `expected a single bulk push, got ${pushes.length}`);
   assert.equal((pushes[0].body as { ops: unknown[] }).ops.length, 12);
+  assert.equal(useSync.getState().pendingCount, 0);
+});
+
+test("a backlog larger than one request still drains completely", async () => {
+  // The bug this covers: the client sent its whole outbox in one request while
+  // the server rejects anything over 500 ops. A long offline stretch produced a
+  // batch that was refused wholesale and retried forever — the harder someone
+  // had worked offline, the more certainly none of it synced.
+  goOnline();
+  useSync.getState().reset();
+  await useSync.getState().bootstrap("user-a");
+
+  goOffline();
+  const TOTAL = 950;
+  for (let i = 0; i < TOTAL; i++) useSync.getState().create("todo", { title: `bulk ${i}` });
+  await settle();
+  assert.equal(useSync.getState().pendingCount, TOTAL);
+
+  goOnline();
+  calls = [];
+  // Each flush drains one chunk; the store self-reschedules for the rest.
+  for (let i = 0; i < 10 && useSync.getState().pendingCount > 0; i++) {
+    await useSync.getState().flush();
+    await settle();
+  }
+
+  assert.equal(useSync.getState().pendingCount, 0, "the queue never drained");
+
+  const pushes = calls.filter((c) => c.url.includes("/sync/push"));
+  assert.ok(pushes.length > 1, "a backlog this size must take several requests");
+  for (const p of pushes) {
+    const ops = (p.body as { ops: unknown[] }).ops;
+    assert.ok(ops.length <= 500, `sent ${ops.length} ops — the server would reject this`);
+  }
+});
+
+test("a small queue still goes up as exactly one request", async () => {
+  // Chunking must not cost the common case its single round-trip.
+  goOnline();
+  useSync.getState().reset();
+  await useSync.getState().bootstrap("user-a");
+
+  goOffline();
+  for (let i = 0; i < 30; i++) useSync.getState().create("todo", { title: `small ${i}` });
+  await settle();
+
+  goOnline();
+  calls = [];
+  await useSync.getState().flush();
+
+  const pushes = calls.filter((c) => c.url.includes("/sync/push"));
+  assert.equal(pushes.length, 1);
   assert.equal(useSync.getState().pendingCount, 0);
 });
 

@@ -69,7 +69,7 @@ function unionWindows(wins: { start: Date; end: Date }[]): { start: Date; end: D
   const sorted = [...wins].sort((a, b) => a.start.getTime() - b.start.getTime());
   const merged: { start: Date; end: Date }[] = [];
   for (const w of sorted) {
-    const last = merged[merged.length - 1];
+    const last = merged.at(-1);
     if (last && w.start.getTime() <= last.end.getTime()) {
       if (w.end > last.end) last.end = new Date(w.end);
     } else {
@@ -237,7 +237,7 @@ function reasonFor(
     else parts.push(`ahead of its ${daysLeft}-day deadline`);
   }
   if (chunk) parts.push(`chunked into ${chunk.count} (part ${chunk.index}/${chunk.count}) — no single gap was long enough`);
-  const why = parts.length ? parts.join("; ") : "earliest open slot in your working hours";
+  const why = parts.length > 0 ? parts.join("; ") : "earliest open slot in your working hours";
   return `${time} — ${why}.`;
 }
 
@@ -578,9 +578,7 @@ export function solve(input: SchedulerInput): ScheduleProposal {
 
     for (let i = 0; i < sizes.length; i++) {
       // Later chunks of the same task must also follow the earlier ones.
-      const floor = placedForTask.length
-        ? placedForTask[placedForTask.length - 1].end
-        : notBefore;
+      const floor = placedForTask.length > 0 ? placedForTask.at(-1)!.end : notBefore;
       const placement = placeSession(task, sizes[i], slots, dayStates, p, floor);
       if (placement.refusal !== null || placement.end.getTime() === 0) {
         failed = true;
@@ -611,14 +609,14 @@ export function solve(input: SchedulerInput): ScheduleProposal {
       });
     } else {
       blocks.push(...placedForTask);
-      const last = placedForTask[placedForTask.length - 1];
+      const last = placedForTask.at(-1);
       if (last) finishedAt.set(task.id, last.end);
-      if (cyclic.has(task.id)) {
-        // Placed, but its ordering couldn't be honoured. Say so rather than
-        // quietly pretending the dependency was respected.
+      // Placed, but its ordering couldn't be honoured. Say so on the block
+      // rather than quietly implying the dependency was respected.
+      if (cyclic.has(task.id) && last) {
         blocks[blocks.length - 1] = {
-          ...blocks[blocks.length - 1],
-          reason: `${blocks[blocks.length - 1].reason} (its dependencies form a loop, so the order couldn't be guaranteed)`,
+          ...last,
+          reason: `${last.reason} (its dependencies form a loop, so the order couldn't be guaranteed)`,
         };
       }
     }

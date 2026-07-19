@@ -14,15 +14,3 @@ export const database =
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.database = database;
 export default database;
-
-export const testDatabaseConnection = async () => {
-  try {
-    await database.$connect();
-    await database.$disconnect();
-    return true;
-  } catch (err) {
-    console.error(err);
-    await database.$disconnect();
-    return false;
-  }
-};

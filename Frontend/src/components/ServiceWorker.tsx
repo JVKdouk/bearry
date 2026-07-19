@@ -33,7 +33,7 @@ export function ServiceWorker() {
           // Check for a new deploy now, on focus, and hourly.
           const check = () => reg.update().catch(() => {});
           focusCheck = check;
-          check();
+          void check();
           window.addEventListener("focus", check);
           updateTimer = setInterval(check, 60 * 60 * 1000);
           // If a new worker installs while a controller exists, activate it now.

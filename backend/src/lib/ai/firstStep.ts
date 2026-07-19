@@ -161,24 +161,24 @@ function stepsFromNotes(notes: string | null | undefined): string[] | null {
 
   // An explicit list: take it as written.
   if (listLines.length >= 2) {
-    const steps = listLines.map(tidyStep).filter((l) => l.length >= 3);
+    const steps = listLines.map((s) => tidyStep(s)).filter((l) => l.length >= 3);
     if (steps.length >= 2) return steps.slice(0, MAX_STEPS);
   }
 
   // No markers, but several short lines still reads as a checklist.
   const shortLines = lines.filter((l) => l.length >= 3 && l.length <= MAX_STEP_LEN);
   if (lines.length >= 2 && shortLines.length >= 2) {
-    return shortLines.map(tidyStep).slice(0, MAX_STEPS);
+    return shortLines.map((s) => tidyStep(s)).slice(0, MAX_STEPS);
   }
 
   // A single prose blob: split into sentences and use the first few, but only
   // when they're short enough to read as actions rather than paragraphs.
   const sentences = notes
-    .replace(/\s+/g, " ")
+    .replaceAll(/\s+/g, " ")
     .split(/(?<=[.!?;])\s+/)
     .map((x) => x.trim())
     .filter((x) => x.length >= 8 && x.length <= MAX_STEP_LEN);
-  if (sentences.length >= 2) return sentences.map(tidyStep).slice(0, MAX_STEPS);
+  if (sentences.length >= 2) return sentences.map((s) => tidyStep(s)).slice(0, MAX_STEPS);
 
   return null;
 }
@@ -191,7 +191,7 @@ export function heuristicFirstSteps(task: FirstStepInput): StepSuggestion {
   // The user's own notes are the most specific thing we have — use them before
   // falling back to templates keyed off the title.
   const fromNotes = stepsFromNotes(task.notes);
-  if (fromNotes && fromNotes.length) return { steps: fromNotes, source: "notes" };
+  if (fromNotes && fromNotes.length > 0) return { steps: fromNotes, source: "notes" };
 
   const haystack = `${task.title} ${task.notes ?? ""}`;
   const firstWord = task.title.trim().replace(/^(to|the|a|an)\s+/i, "").split(/\s+/)[0] ?? "";
@@ -267,5 +267,5 @@ export async function suggestFirstSteps(
   const ai = await generateJSON(prompt, AiSteps).catch(() => null);
   if (!ai) return fallback; // quota, timeout, malformed output — all recoverable
   const steps = ai.steps.map((s) => s.trim()).filter(Boolean);
-  return steps.length ? { steps, source: "ai" } : fallback;
+  return steps.length > 0 ? { steps, source: "ai" } : fallback;
 }

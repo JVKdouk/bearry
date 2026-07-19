@@ -18,6 +18,6 @@ export const SAFETY_RULES = [
 /** Wrap untrusted user content in an unambiguous fence. */
 export function dataBlock(body: string): string {
   // Strip any fence the content itself tries to close.
-  const safe = body.replace(/>>>/g, ">>").slice(0, 8000);
+  const safe = body.replaceAll('>>>', ">>").slice(0, 8000);
   return ["DATA:", "<<<", safe, ">>>"].join("\n");
 }

@@ -96,7 +96,7 @@ function containsAny(lower: string, words: string[]): boolean {
 function parseDuration(text: string): number | undefined {
   const m = text.match(DURATION_RE);
   if (!m) return undefined;
-  const value = parseFloat(m[1]);
+  const value = Number.parseFloat(m[1]);
   const unit = m[2].toLowerCase();
   return unit.startsWith("h") ? Math.round(value * 60) : Math.round(value);
 }

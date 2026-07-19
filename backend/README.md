@@ -1,7 +1,7 @@
-# BearAI backend
+# Bearry backend
 
-Fastify + Prisma + PostgreSQL. Breach-contained, server-decryptable (§5). Built
-through Phase 5.
+Fastify + Prisma + PostgreSQL. Breach-contained and server-decryptable — see
+[../SECURITY.md](../SECURITY.md) for the model and its limits.
 
 ## Architecture
 
@@ -18,6 +18,14 @@ through Phase 5.
   logged+rate-limited KEK unwrap), `rateLimiter` (distinct-user + record caps),
   `auditLog` (append-only, off-box mirror), `breakGlass` (flush + rotate).
 - **Sync** (`src/lib/sync/`): registry-driven delta pull/push with LWW.
+  `tombstones.ts` prunes deletions past a retention window and forces a
+  re-bootstrap for any client whose cursor predates it — without that, a
+  long-absent client resurrects deleted rows.
+- **Recurrence** (`src/lib/recurrence/rrule.ts`): a focused RFC 5545 subset.
+  **Mirrored byte-for-byte into the frontend** (offline expansion); edit here,
+  then `npm run sync:rrule`.
+- **Digests** (`src/lib/digest/`): composed from cleartext metadata, delivered
+  on an hourly schedule that is idempotent per user per period.
 - **Capture** (`src/lib/capture/classifier.ts`): pure Stage-1 triage.
 - **Scheduler** (`src/lib/scheduler/`): pure constraint solver + DB service.
 
@@ -39,6 +47,9 @@ through Phase 5.
 | GET | `/sync/pull` · POST `/sync/push` | Delta sync |
 | — | (Google is now a plugin under `/integrations`, not a dedicated controller) | |
 | GET | `/integrations` · POST `/:id/{connect,sync,disconnect}` · GET `/:id/auth-url` · GET `/schema` | Plugin system (registry-driven, canonical blocks) |
+| POST | `/ai/enrich` · `/ai/first-step` · `/ai/diagnose` | Optional assists; each has a heuristic fallback and charges the per-user AI budget |
+| GET | `/digest/status` (`?verify=1` checks the mail transport) | Digest config + server capability |
+| POST | `/digest/settings` · `/digest/preview` · `/digest/send` | Digest opt-ins and manual send |
 
 ## Security hardening
 

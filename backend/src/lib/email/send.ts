@@ -59,11 +59,6 @@ function getTransport(): Transporter {
   return transporter;
 }
 
-/** Reset the memoized transport — used after a config change, and by tests. */
-export function resetTransport(): void {
-  transporter = null;
-}
-
 export async function sendEmail(to: string, subject: string, html: string, text: string): Promise<void> {
   if (!emailEnabled()) throw new Error("No mail transport configured (set GMAIL_USER + GMAIL_APP_PASSWORD)");
 

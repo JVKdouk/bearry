@@ -178,13 +178,6 @@ function withTimeOf(day: Date, from: Date): Date {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Whole days between two dates, ignoring time-of-day and DST shifts. */
-function daysBetween(a: Date, b: Date): number {
-  const ua = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
-  const ub = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
-  return Math.round((ub - ua) / DAY_MS);
-}
-
 /**
  * Occurrences of `rule` starting at `dtStart`, from `after` (exclusive) onward.
  *
@@ -308,18 +301,29 @@ export function describeRRule(raw: string | null | undefined): string | null {
   const every = (unit: string) => (n === 1 ? `Every ${unit}` : `Every ${n} ${unit}s`);
 
   let text: string;
-  if (rule.freq === "DAILY") text = every("day");
-  else if (rule.freq === "WEEKLY") {
+  switch (rule.freq) {
+  case "DAILY": {
+  text = every("day");
+  break;
+  }
+  case "WEEKLY": {
     const names = (rule.byDay ?? []).map((d) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d]);
     // "Every weekday" is how people actually say Mon–Fri.
     const isWeekdays = names.length === 5 && !names.includes("Sat") && !names.includes("Sun");
     text = isWeekdays && n === 1 ? "Every weekday" : every("week");
-    if (names.length && !(isWeekdays && n === 1)) text += ` on ${names.join(", ")}`;
-  } else if (rule.freq === "MONTHLY") {
+    if (names.length > 0 && !(isWeekdays && n === 1)) text += ` on ${names.join(", ")}`;
+  
+  break;
+  }
+  case "MONTHLY": {
     text = every("month");
     if (rule.byMonthDay) text += ` on day ${rule.byMonthDay}`;
-  } else {
+  
+  break;
+  }
+  default: {
     text = every("year");
+  }
   }
 
   if (rule.count) text += `, ${rule.count} times`;

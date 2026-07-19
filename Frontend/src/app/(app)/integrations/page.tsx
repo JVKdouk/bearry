@@ -22,7 +22,7 @@ import {
 } from "@ant-design/icons";
 import { PageHeader } from "@/components/PageHeader";
 import { GridSkeleton } from "@/components/Skeletons";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, errText } from "@/lib/api";
 import { useSync } from "@/store/sync";
 import { useIntegrations } from "@/store/integrations";
 import { useIsOffline } from "@/store/network";
@@ -110,8 +110,8 @@ export default function IntegrationsPage() {
         setSecretFor(p);
         setSecret("");
       }
-    } catch {
-      message.error("Couldn't connect");
+    } catch (e) {
+      message.error(errText(e, "Couldn't connect"));
       setBusy(null);
     }
   }
@@ -148,8 +148,8 @@ export default function IntegrationsPage() {
       await api.connectionDisconnect(c.id);
       await refresh();
       message.success(`Disconnected ${c.label}`);
-    } catch {
-      message.error("Couldn't disconnect");
+    } catch (e) {
+      message.error(errText(e, "Couldn't disconnect"));
     } finally {
       setBusy(null);
     }
@@ -162,8 +162,8 @@ export default function IntegrationsPage() {
       await pull();
       message.success(`Synced ${c.label}`);
       await refresh();
-    } catch {
-      message.error("Sync failed");
+    } catch (e) {
+      message.error(errText(e, "Sync failed"));
     } finally {
       setBusy(null);
     }
@@ -175,8 +175,8 @@ export default function IntegrationsPage() {
       await api.connectionOptions(c.id, selected.length === all ? null : selected);
       message.success("Selection saved");
       await refresh();
-    } catch {
-      message.error("Couldn't save");
+    } catch (e) {
+      message.error(errText(e, "Couldn't save"));
     }
   }
 
@@ -348,7 +348,7 @@ export default function IntegrationsPage() {
                               style={{ display: "flex", flexDirection: "column", gap: 4 }}
                               defaultValue={c.selectedGroups ?? c.groups.map((g) => g.id)}
                               options={c.groups.map((g) => ({ label: g.label, value: g.id }))}
-                              onChange={(vals) => saveGroups(c, vals as string[])}
+                              onChange={(vals) => saveGroups(c, vals)}
                             />
                           </div>
                         )}

@@ -15,10 +15,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import path from "node:path";
 
-const BACKEND = join(import.meta.dirname, "../src/lib/recurrence/rrule.ts");
-const FRONTEND = join(import.meta.dirname, "../../Frontend/src/lib/recurrence/rrule.ts");
+const BACKEND = path.join(import.meta.dirname, "../src/lib/recurrence/rrule.ts");
+const FRONTEND = path.join(import.meta.dirname, "../../Frontend/src/lib/recurrence/rrule.ts");
 
 test("the frontend RRULE engine is a byte-identical mirror of this one", () => {
   // Skip rather than fail when the frontend isn't checked out beside us — the

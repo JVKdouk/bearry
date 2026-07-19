@@ -143,6 +143,8 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
               return (
                 <button
                   key={p.label}
+                  type="button"
+                  aria-pressed={active}
                   onClick={() => pick(p.date, p.time)}
                   style={{
                     border: `1px solid ${active ? ACCENT : LINE}`,
@@ -172,11 +174,21 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
               marginBottom: 6,
             }}
           >
-            <Button type="text" size="small" onClick={() => setMonth(month.subtract(1, "month"))}>
+            <Button
+              type="text"
+              size="small"
+              aria-label="Previous month"
+              onClick={() => setMonth(month.subtract(1, "month"))}
+            >
               ‹
             </Button>
             <span style={{ fontSize: 13, fontWeight: 600 }}>{month.format("MMMM YYYY")}</span>
-            <Button type="text" size="small" onClick={() => setMonth(month.add(1, "month"))}>
+            <Button
+              type="text"
+              size="small"
+              aria-label="Next month"
+              onClick={() => setMonth(month.add(1, "month"))}
+            >
               ›
             </Button>
           </div>
@@ -198,6 +210,11 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
               return (
                 <button
                   key={key}
+                  type="button"
+                  // The visible label is a bare number, which out of context is
+                  // meaningless read aloud — give the whole date.
+                  aria-label={d.format("dddd D MMMM YYYY")}
+                  aria-pressed={selected}
                   onClick={() => pick(d)}
                   style={{
                     aspectRatio: "1",
@@ -261,6 +278,8 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
               return (
                 <button
                   key={m}
+                  type="button"
+                  aria-pressed={active}
                   onClick={() => onChange({ duration: m })}
                   style={{
                     border: `1px solid ${active ? ACCENT : LINE}`,
@@ -281,6 +300,7 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Button
               size="small"
+              aria-label="Five minutes shorter"
               onClick={() => onChange({ duration: Math.max(5, value.duration - 5) })}
             >
               −
@@ -298,6 +318,7 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
             </span>
             <Button
               size="small"
+              aria-label="Five minutes longer"
               onClick={() => onChange({ duration: Math.min(600, value.duration + 5) })}
             >
               +

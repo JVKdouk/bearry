@@ -1,0 +1,22 @@
+# Editor-agnostic baseline, so a contributor without the VS Code settings below
+# doesn't produce diffs full of whitespace churn.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 100
+
+[*.md]
+# Markdown gives meaning to trailing whitespace (hard line break).
+trim_trailing_whitespace = false
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[Makefile]
+indent_style = tab

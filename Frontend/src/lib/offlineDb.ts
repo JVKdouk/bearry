@@ -81,15 +81,6 @@ export async function idbDel(key: string): Promise<void> {
   await withStore("readwrite", (s) => s.delete(key));
 }
 
-export async function idbClear(): Promise<void> {
-  await withStore("readwrite", (s) => s.clear());
-}
-
-/** True when durable local storage is actually available in this browser. */
-export async function idbAvailable(): Promise<boolean> {
-  return (await openDb()) !== null;
-}
-
 // --- Keys -----------------------------------------------------------------
 // Everything is namespaced per user id: a shared device must never show one
 // account's cached workspace to the next person who signs in.

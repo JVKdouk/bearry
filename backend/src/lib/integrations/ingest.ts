@@ -82,7 +82,7 @@ export async function ingestBlocks(
   // slowest thing a new user does. Keyed by sourceId, which is unique within
   // (user, provider, account).
   const sourceIds = [...new Set(blocks.map((b) => b.sourceId))];
-  const existingRows = sourceIds.length
+  const existingRows = sourceIds.length > 0
     ? await database.importedItem.findMany({
         where: { userId, providerId, accountKey, sourceId: { in: sourceIds } },
       })
@@ -121,12 +121,15 @@ export async function ingestBlocks(
 
     const existing = existingBySourceId.get(block.sourceId) ?? null;
 
-    if (existing && existing.contentHash === hash) {
-      // Unchanged since last import — but only skip if the entity still exists.
-      // If it was deleted platform-side (e.g. the user cleared a first import,
-      // then narrowed the project selection and re-synced), recreate it so the
-      // selection actually takes effect instead of the re-sync being a no-op.
-      if (liveEntityIds.has(existing.entityId)) { summary.skipped += 1; continue; }
+    // Unchanged since last import — but only skip if the entity still exists.
+    // If it was deleted platform-side (e.g. the user cleared a first import,
+    // then narrowed the project selection and re-synced), fall through and
+    // recreate it, so the selection actually takes effect instead of the
+    // re-sync being a silent no-op.
+    const unchanged = existing?.contentHash === hash && liveEntityIds.has(existing.entityId);
+    if (unchanged) {
+      summary.skipped += 1;
+      continue;
     }
 
     const data = encryptRecord(model, userId, dek, toEntityData(block));

@@ -148,7 +148,7 @@ export async function enrichTasks(
   userId: string,
   tasks: EnrichInput[],
 ): Promise<Enrichment[]> {
-  const fallback = tasks.map(heuristicEnrich);
+  const fallback = tasks.map((t) => heuristicEnrich(t));
   if (tasks.length === 0 || !(await aiAvailable(userId))) return fallback;
 
   const ai = await generateJSON(buildPrompt(tasks), AiResponse).catch(() => null);

@@ -25,7 +25,7 @@ import {
 } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
 import isoWeek from "dayjs/plugin/isoWeek";
-import { api } from "@/lib/api";
+import { api, errText } from "@/lib/api";
 import { useCollection } from "@/store/hooks";
 import { useSync } from "@/store/sync";
 import { useUI } from "@/store/ui";
@@ -34,13 +34,14 @@ import { durationLabel, LIFE_AREA_COLOR } from "@/lib/format";
 import { ACCENT, SUNSET, SURFACE, TEXT, WARM } from "@/lib/theme";
 import { expandRange } from "@/lib/recurrence";
 import { CalendarPeek } from "@/components/CalendarPeek";
+import { MonthGrid } from "@/components/MonthGrid";
+import type { CalendarBlock as Block, CalendarView as View } from "@/lib/calendarTypes";
 import {
   pinchDistance,
   pinchView,
   releaseOutcome,
   shouldClaim,
   trackOffset,
-  type ScaleView,
 } from "@/lib/swipe";
 import type { Diagnosis, FindingAction, ScheduledBlock, ScheduleProposal } from "@/lib/types";
 
@@ -82,19 +83,7 @@ function shiftAnchor(view: View, anchor: Dayjs, dir: 1 | -1): Dayjs {
   return anchor.add(dir, "week");
 }
 
-interface Block {
-  /** Unique per rendered instance — a repeating event yields several. */
-  id: string;
-  /** The stored row this came from. Every write must use this, never `id`. */
-  masterId: string;
-  kind: "todo" | "event";
-  title: string;
-  start: Dayjs;
-  end: Dayjs;
-  color: string;
-  /** A generated occurrence rather than the stored row itself. */
-  isRepeat?: boolean;
-}
+
 
 interface DragState {
   day: Dayjs;
@@ -103,7 +92,7 @@ interface DragState {
   curMin: number;
 }
 
-type View = "day" | "3day" | "week" | "month";
+
 
 /** An in-flight drag of a proposed block. */
 interface MoveDrag {
@@ -135,191 +124,6 @@ const ACTION_LABEL: Record<FindingAction, string> = {
   adjust_rhythm: "Adjust how you work",
   none: "",
 };
-
-/**
- * Month view.
- *
- * Deliberately a different shape from the day/week grid rather than a squashed
- * version of it: at ~90px per cell an hour grid is unreadable, so a month cell
- * shows *what* is on each day, not when. It's an overview for spotting busy and
- * empty stretches — tapping a day drills into the day view to actually work.
- *
- * There is no planning here (a month is far past any honest planning horizon),
- * which is why the Plan button falls back to the week.
- */
-function MonthGrid({
-  days,
-  anchor,
-  now,
-  blocks,
-  onPickDay,
-  onCreate,
-  onOpenTask,
-}: {
-  days: Dayjs[];
-  anchor: Dayjs;
-  now: Dayjs;
-  blocks: Block[];
-  onPickDay: (d: Dayjs) => void;
-  onCreate: (d: Dayjs) => void;
-  onOpenTask: (id: string) => void;
-}) {
-  // One pass over the blocks instead of filtering per cell — a month is up to
-  // 42 cells, and re-scanning every block for each of them is needless work.
-  const byDay = useMemo(() => {
-    const m = new Map<string, Block[]>();
-    for (const b of blocks) {
-      const k = b.start.format("YYYY-MM-DD");
-      const list = m.get(k);
-      if (list) list.push(b);
-      else m.set(k, [b]);
-    }
-    for (const list of m.values()) list.sort((a, b) => a.start.valueOf() - b.start.valueOf());
-    return m;
-  }, [blocks]);
-
-  const weeks: Dayjs[][] = [];
-  for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
-
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-      {/* weekday header */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(7, 1fr)",
-          borderBottom: `1px solid ${SURFACE.borderSoft}`,
-        }}
-      >
-        {days.slice(0, 7).map((d) => (
-          <div
-            key={d.toISOString()}
-            style={{
-              padding: "8px 6px",
-              textAlign: "center",
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: 0.4,
-              textTransform: "uppercase",
-              color: TEXT.secondary,
-            }}
-          >
-            {d.format("ddd")}
-          </div>
-        ))}
-      </div>
-
-      <div
-        style={{
-          flex: 1,
-          display: "grid",
-          gridTemplateRows: `repeat(${weeks.length}, minmax(0, 1fr))`,
-          minHeight: 0,
-        }}
-      >
-        {weeks.map((week, wi) => (
-          <div
-            key={wi}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(7, 1fr)",
-              borderBottom: `1px solid ${SURFACE.borderSoft}`,
-              minHeight: 0,
-            }}
-          >
-            {week.map((d) => {
-              const inMonth = d.isSame(anchor, "month");
-              const isToday = d.isSame(now, "day");
-              const items = byDay.get(d.format("YYYY-MM-DD")) ?? [];
-              // Leave room for the "+N more" line rather than clipping silently.
-              const shown = items.slice(0, 3);
-              const hidden = items.length - shown.length;
-              return (
-                <div
-                  key={d.toISOString()}
-                  onClick={() => onPickDay(d)}
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    onCreate(d);
-                  }}
-                  style={{
-                    borderRight: `1px solid ${SURFACE.borderSoft}`,
-                    padding: "4px 5px",
-                    minWidth: 0,
-                    minHeight: 0,
-                    overflow: "hidden",
-                    cursor: "pointer",
-                    // Out-of-month days stay visible but recede, so the month's
-                    // shape reads at a glance.
-                    opacity: inMonth ? 1 : 0.35,
-                    background: isToday ? "rgba(168,85,247,0.07)" : "transparent",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 2 }}>
-                    <span
-                      style={{
-                        minWidth: 20,
-                        height: 20,
-                        borderRadius: 999,
-                        display: "grid",
-                        placeItems: "center",
-                        fontSize: 12,
-                        fontWeight: isToday ? 700 : 500,
-                        padding: "0 5px",
-                        color: isToday ? "#fff" : inMonth ? TEXT.primary : TEXT.secondary,
-                        background: isToday ? SUNSET : "transparent",
-                      }}
-                    >
-                      {d.format("D")}
-                    </span>
-                  </div>
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    {shown.map((b) => (
-                      <div
-                        key={b.id}
-                        title={`${b.start.format("HH:mm")} ${b.title}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (b.kind === "todo") onOpenTask(b.masterId);
-                        }}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 4,
-                          fontSize: 11,
-                          lineHeight: 1.45,
-                          color: TEXT.primary,
-                          background: b.color + "22",
-                          borderLeft: `2px solid ${b.color}`,
-                          borderRadius: 4,
-                          padding: "1px 4px",
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        <span style={{ opacity: 0.8, fontVariantNumeric: "tabular-nums" }}>
-                          {b.start.format("HH:mm")}
-                        </span>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{b.title}</span>
-                      </div>
-                    ))}
-                    {hidden > 0 && (
-                      <span style={{ fontSize: 10.5, color: TEXT.secondary, paddingLeft: 2 }}>
-                        +{hidden} more
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function CalendarInner() {
   const { message } = AntdApp.useApp();
@@ -543,7 +347,7 @@ function CalendarInner() {
     const p = pinchRef.current;
     if (p && e.touches.length === 2) {
       const dist = pinchDistance(touchPoint(e.touches[0]), touchPoint(e.touches[1]));
-      const next = pinchView(p.from as ScaleView, p.startDist, dist);
+      const next = pinchView(p.from, p.startDist, dist);
       if (next !== view) {
         setView(next);
         // Re-baseline so a continuing pinch can step another level rather than
@@ -826,8 +630,8 @@ function CalendarInner() {
             (reminders ? ` · ${reminders} marked as reminders` : ""),
         );
         await runPlan();
-      } catch {
-        message.error("Couldn't estimate tasks");
+      } catch (e) {
+        message.error(errText(e, "Couldn't estimate tasks"));
       } finally {
         setEnriching(false);
       }
@@ -914,8 +718,8 @@ function CalendarInner() {
       // Nothing placed, or a phone (where 7 columns ≈ 45px each is unreadable):
       // open the agenda sheet, which carries the explanation.
       if (p.blocks.length === 0 || isNarrow) setReviewOpen(true);
-    } catch {
-      message.error("Couldn't build a plan");
+    } catch (e) {
+      message.error(errText(e, "Couldn't build a plan"));
     } finally {
       setPlanning(false);
     }
@@ -945,8 +749,8 @@ function CalendarInner() {
       setExcluded(new Set());
       setApplied(true);
       message.success(`${selected.length} block${selected.length === 1 ? "" : "s"} added`);
-    } catch {
-      message.error("Couldn't apply the plan");
+    } catch (e) {
+      message.error(errText(e, "Couldn't apply the plan"));
     } finally {
       setApplying(false);
     }
@@ -958,8 +762,8 @@ function CalendarInner() {
       await pull();
       setApplied(false);
       message.success("Reverted");
-    } catch {
-      message.error("Couldn't undo");
+    } catch (e) {
+      message.error(errText(e, "Couldn't undo"));
     }
   }
 
@@ -1258,8 +1062,8 @@ function CalendarInner() {
           {days.map((day) => {
             const isToday = day.isSame(now, "day");
             const dragActive = drag && drag.day.isSame(day, "day");
-            const lo = dragActive ? Math.min(drag!.startMin, drag!.curMin) : 0;
-            const hi = dragActive ? Math.max(drag!.startMin, drag!.curMin) : 0;
+            const lo = dragActive ? Math.min(drag.startMin, drag.curMin) : 0;
+            const hi = dragActive ? Math.max(drag.startMin, drag.curMin) : 0;
             const dayBlocks = blocksForDay(day);
             const dayLayout = layoutDay(dayBlocks);
             // Vertical spans already taken by a block, so a region label can
@@ -1511,6 +1315,23 @@ function CalendarInner() {
                         data-block="event"
                         title={`${b.start.format("HH:mm")}–${b.end.format("HH:mm")}  ${b.title}`}
                         onMouseDown={(e) => e.stopPropagation()}
+                        // Tasks are openable, so they must be reachable without a
+                        // mouse. Events are display-only and stay out of the tab
+                        // order rather than becoming focus stops that do nothing.
+                        role={b.kind === "todo" ? "button" : undefined}
+                        tabIndex={b.kind === "todo" ? 0 : undefined}
+                        aria-label={
+                          b.kind === "todo"
+                            ? `${b.title}, ${b.start.format("HH:mm")} to ${b.end.format("HH:mm")}`
+                            : undefined
+                        }
+                        onKeyDown={(e) => {
+                          if (b.kind !== "todo") return;
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openEditTask(b.masterId);
+                          }
+                        }}
                         onClick={() => {
                           // Opens the stored task even from a future occurrence:
                           // editing a repeating task edits the series.

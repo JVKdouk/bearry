@@ -11,6 +11,7 @@ import database from "@/core/database";
 import type { RequestCrypto } from "@/src/lib/crypto/requestCrypto";
 import { nextAfter } from "@/src/lib/recurrence/rrule";
 import { SYNCABLES, findSyncable, type SyncableEntity } from "./registry";
+import { needsFullResync } from "./tombstones";
 
 export type PullResult = {
   /** New cursor the client stores and sends next time. */
@@ -19,6 +20,13 @@ export type PullResult = {
   changes: Record<string, unknown[]>;
   /** True when the page was capped — the client should pull again immediately. */
   hasMore: boolean;
+  /**
+   * The client's cursor predates tombstone retention, so deletions it never saw
+   * may already have been pruned. It must discard local state and take this
+   * response as a fresh bootstrap; continuing from its own cursor would leave
+   * deleted rows resurrectable. See lib/sync/tombstones.ts.
+   */
+  reset?: true;
 };
 
 /**
@@ -45,6 +53,13 @@ export async function pull(
   const now = new Date();
   const changes: Record<string, unknown[]> = {};
 
+  // A cursor older than tombstone retention can't be trusted to have seen every
+  // deletion, so serve a full bootstrap instead of a delta and tell the client
+  // to throw away what it has. Downgrading to a full pull here is what makes
+  // pruning safe at all.
+  const mustReset = needsFullResync(since, now);
+  if (mustReset) since = null;
+
   // Fetch every entity's delta concurrently rather than serially — a full
   // bootstrap touches ~10 tables and these are independent reads.
   const results = await Promise.all(
@@ -65,7 +80,9 @@ export async function pull(
       // every row sharing that millisecond, because the next pull asks for
       // `updatedAt > cursor` and would step straight over them.
       const page = rows.slice(0, PAGE_LIMIT);
-      const boundary = page[page.length - 1].updatedAt.getTime();
+      // Non-empty by construction: we only get here when rows exceeded the
+      // page limit, so the page is exactly PAGE_LIMIT rows.
+      const boundary = page.at(-1)!.updatedAt.getTime();
       let cut = page.length;
       while (cut > 0 && page[cut - 1].updatedAt.getTime() === boundary) cut -= 1;
 
@@ -73,7 +90,7 @@ export async function pull(
       // return nothing and loop forever, so keep the page and accept that the
       // next pull may re-send those rows (the merge is idempotent).
       const kept = cut === 0 ? page : page.slice(0, cut);
-      const nextCursor = kept[kept.length - 1].updatedAt;
+      const nextCursor = kept.at(-1)!.updatedAt; // `kept` is page, or a slice of >= 1
       return { entity: s.entity, model: s.model, rows: kept, nextCursor };
     }),
   );
@@ -93,7 +110,7 @@ export async function pull(
     changes[r.entity] = crypto.decryptMany(r.model, r.rows as Record<string, unknown>[]);
   }
 
-  return { cursor: cursor.toISOString(), changes, hasMore };
+  return { cursor: cursor.toISOString(), changes, hasMore, ...(mustReset ? { reset: true as const } : {}) };
 }
 
 export type PushOp = {

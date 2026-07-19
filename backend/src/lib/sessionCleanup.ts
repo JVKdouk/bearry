@@ -21,6 +21,6 @@ export function startSessionSweep(): void {
   };
   // Fire once shortly after boot, then on an interval. `unref` so the timer
   // never keeps the process alive on its own.
-  setTimeout(sweep, 5_000).unref();
-  setInterval(sweep, SWEEP_INTERVAL_MS).unref();
+  setTimeout(() => void sweep(), 5_000).unref();
+  setInterval(() => void sweep(), SWEEP_INTERVAL_MS).unref();
 }

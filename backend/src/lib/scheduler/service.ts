@@ -32,33 +32,66 @@ export async function planForUser(
   // Not-done, not-let-go todos (cleartext metadata only). A todo with a
   // start+end is an already-placed *timed* item (an "event"): it's busy, not
   // schedulable. Everything else is a candidate the solver can place.
-  const todos = await database.todo.findMany({
-    where: { userId, deletedAt: null, letGoAt: null, status: { not: "done" } },
-    select: {
-      id: true, estimatedDuration: true, deadline: true, priority: true, category: true,
-      startTime: true, endTime: true, desire: true, status: true,
-      energyDemand: true, chunkable: true, minChunk: true, maxChunk: true, createdAt: true,
-    },
-  });
+  //
+  // These six reads are independent of each other, so they go out together.
+  // Run sequentially they cost six round-trips on what is already the slowest
+  // interaction in the app; the work is identical, only the waiting differs.
+  const [todos, alreadyPlanned, events, blocks, depLinks, regions] = await Promise.all([
+    database.todo.findMany({
+      where: { userId, deletedAt: null, letGoAt: null, status: { not: "done" } },
+      select: {
+        id: true, estimatedDuration: true, deadline: true, priority: true, category: true,
+        startTime: true, endTime: true, desire: true, status: true,
+        energyDemand: true, chunkable: true, minChunk: true, maxChunk: true, createdAt: true,
+      },
+    }),
+
+    // Tasks that ALREADY have accepted plan blocks are done being scheduled.
+    // Without this, accepting a plan and pressing Plan again re-proposed every
+    // task a second time at different hours — the accepted blocks were counted
+    // as busy, but the tasks behind them still looked unscheduled, so the
+    // planner dutifully found them new homes and you ended up with duplicates.
+    database.calendarEvent.findMany({
+      where: {
+        userId,
+        deletedAt: null,
+        source: "bearai",
+        bearaiTaskId: { not: null },
+        // Anything still ahead of us counts; past blocks shouldn't pin a task
+        // forever if it was never actually done.
+        end: { gt: horizonStart },
+      },
+      select: { bearaiTaskId: true },
+    }),
+
+    // Everything already on the calendar in the horizon is busy/immovable
+    // (§9.3) — including fixed meetings (source=google / isFixed), which the
+    // solver never schedules over.
+    database.calendarEvent.findMany({
+      where: { userId, deletedAt: null, start: { lt: horizonEnd }, end: { gt: horizonStart } },
+      select: { start: true, end: true, bearaiTaskId: true },
+    }),
+
+    database.timeBlock.findMany({
+      where: { userId, deletedAt: null, type: "busy", start: { lt: horizonEnd }, end: { gt: horizonStart } },
+      select: { start: true, end: true },
+    }),
+
+    // Dependencies: "A blocks B" means B can't start until A is finished.
+    // Stored as ordinary Link rows (§8.7) so they sync and need no bespoke table.
+    database.link.findMany({
+      where: { userId, deletedAt: null, linkType: "blocks", fromType: "todo", toType: "todo" },
+      select: { fromId: true, toId: true },
+    }),
+
+    // Recurring time-blocking regions (work/sleep/family) shape where tasks land.
+    database.blockRegion.findMany({
+      where: { userId, deletedAt: null },
+      select: { category: true, dayMask: true, start: true, end: true },
+    }),
+  ]);
   const timedTodos = todos.filter((t) => t.startTime && t.endTime);
 
-  // Tasks that ALREADY have accepted plan blocks are done being scheduled.
-  // Without this, accepting a plan and pressing Plan again re-proposed every
-  // task a second time at different hours — the accepted blocks were counted as
-  // busy, but the tasks behind them still looked unscheduled, so the planner
-  // dutifully found them new homes and you ended up with duplicates.
-  const alreadyPlanned = await database.calendarEvent.findMany({
-    where: {
-      userId,
-      deletedAt: null,
-      source: "bearai",
-      bearaiTaskId: { not: null },
-      // Anything still ahead of us counts; past blocks shouldn't pin a task
-      // forever if it was never actually done.
-      end: { gt: horizonStart },
-    },
-    select: { bearaiTaskId: true },
-  });
   const plannedTaskIds = new Set(
     alreadyPlanned.map((e) => e.bearaiTaskId).filter((id): id is string => !!id),
   );
@@ -84,36 +117,6 @@ export async function planForUser(
       (!t.deadline || t.deadline <= relevanceCutoff),
   );
 
-  // Everything already on the calendar in the horizon is busy/immovable (§9.3) —
-  // this includes fixed meetings (source=google / isFixed), which the solver
-  // never schedules over.
-  const events = await database.calendarEvent.findMany({
-    where: { userId, deletedAt: null, start: { lt: horizonEnd }, end: { gt: horizonStart } },
-    select: { start: true, end: true, bearaiTaskId: true },
-  });
-
-  const blocks = await database.timeBlock.findMany({
-    where: { userId, deletedAt: null, type: "busy", start: { lt: horizonEnd }, end: { gt: horizonStart } },
-    select: { start: true, end: true },
-  });
-  // Dependencies: "A blocks B" means B can't start until A is finished. Stored
-  // as ordinary Link rows (§8.7) so they sync and need no bespoke table.
-  const depLinks = await database.link.findMany({
-    where: {
-      userId,
-      deletedAt: null,
-      linkType: "blocks",
-      fromType: "todo",
-      toType: "todo",
-    },
-    select: { fromId: true, toId: true },
-  });
-
-  // Recurring time-blocking regions (work/sleep/family) shape where tasks land.
-  const regions = await database.blockRegion.findMany({
-    where: { userId, deletedAt: null },
-    select: { category: true, dayMask: true, start: true, end: true },
-  });
 
   const schedulableIds = new Set(schedulable.map((t) => t.id));
 

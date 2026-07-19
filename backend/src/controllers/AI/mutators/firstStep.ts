@@ -5,6 +5,8 @@ import { requestCrypto } from "@/src/lib/crypto/requestCrypto";
 import { suggestFirstSteps } from "@/src/lib/ai/firstStep";
 import GenericError from "@/core/server/errors/generic";
 
+import { chargeAi } from "@/src/lib/security/aiBudget";
+
 const Body = z.object({ todoId: z.string() });
 
 /**
@@ -15,6 +17,7 @@ const Body = z.object({ todoId: z.string() });
 const firstStep: Endpoint = async (request) => {
   const { todoId } = Body.parse(request.body ?? {});
   const userId = request.user.id;
+  chargeAi(userId, 1);
 
   const row = await database.todo.findFirst({
     where: { id: todoId, userId, deletedAt: null },

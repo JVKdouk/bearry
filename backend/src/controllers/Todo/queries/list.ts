@@ -29,7 +29,7 @@ const listTodos: Endpoint = async (request) => {
   });
 
   const crypto = await requestCrypto(request, Math.max(rows.length, 1));
-  const todos = crypto.decryptMany("Todo", rows as Record<string, unknown>[]).map(serializeTodo);
+  const todos = crypto.decryptMany("Todo", rows as Record<string, unknown>[]).map((t) => serializeTodo(t));
   return { todos };
 };
 

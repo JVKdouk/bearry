@@ -19,10 +19,6 @@ const { Text } = Typography;
  * first accurately and guess at the second.
  */
 
-type Field = {
-  key: string;
-  fallback: string;
-};
 
 const DEFAULTS: Record<string, string> = {
   sessionLength: "50",
@@ -179,7 +175,7 @@ export function RhythmTab() {
         <Segmented
           block
           value={valueOf("startDifficulty")}
-          onChange={(v) => set("startDifficulty", v as string)}
+          onChange={(v) => set("startDifficulty", v)}
           options={[
             { label: "I just start", value: "easy" },
             { label: "Sometimes", value: "moderate" },
@@ -195,7 +191,7 @@ export function RhythmTab() {
         <Segmented
           block
           value={valueOf("stopDifficulty")}
-          onChange={(v) => set("stopDifficulty", v as string)}
+          onChange={(v) => set("stopDifficulty", v)}
           options={[
             { label: "I stop on time", value: "easy" },
             { label: "Sometimes", value: "moderate" },
@@ -211,7 +207,7 @@ export function RhythmTab() {
         <Segmented
           block
           value={valueOf("weekendMode")}
-          onChange={(v) => set("weekendMode", v as string)}
+          onChange={(v) => set("weekendMode", v)}
           options={[
             { label: "Keep them free", value: "none" },
             { label: "A little", value: "light" },
@@ -227,7 +223,7 @@ export function RhythmTab() {
         <Segmented
           block
           value={valueOf("flexibility")}
-          onChange={(v) => set("flexibility", v as string)}
+          onChange={(v) => set("flexibility", v)}
           options={[
             { label: "Leave me slack", value: "rigid" },
             { label: "Balanced", value: "balanced" },

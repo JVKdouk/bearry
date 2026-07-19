@@ -24,7 +24,7 @@ import {
 } from "@ant-design/icons";
 import { PageHeader } from "@/components/PageHeader";
 import { ListSkeleton } from "@/components/Skeletons";
-import { ApiError } from "@/lib/api";
+import { errText } from "@/lib/api";
 import { useSync } from "@/store/sync";
 import { useCollection } from "@/store/hooks";
 import dayjs from "dayjs";
@@ -167,7 +167,7 @@ export default function InboxPage() {
       await doCapture(raw);
       setText("");
     } catch (e) {
-      message.error(e instanceof ApiError ? e.message : "Capture failed");
+      message.error(errText(e, "Capture failed"));
     } finally {
       setSubmitting(false);
     }
@@ -193,15 +193,15 @@ export default function InboxPage() {
       if (!offline) await pull(); // bring the new todo/note/event into the store
       message.success(type === "trash" ? "Dismissed" : `Added as ${type}`);
     } catch (e) {
-      message.error(e instanceof ApiError ? e.message : "Couldn't accept");
+      message.error(errText(e, "Couldn't accept"));
     }
   }
 
   async function dismiss(item: CaptureItem) {
     try {
       await doDismiss(item.id);
-    } catch {
-      message.error("Couldn't dismiss");
+    } catch (e) {
+      message.error(errText(e, "Couldn't dismiss"));
     }
   }
 
@@ -302,7 +302,7 @@ export default function InboxPage() {
                     size="small"
                     value={chosen}
                     onChange={(v) =>
-                      setOverrides((o) => ({ ...o, [item.id]: v as string }))
+                      setOverrides((o) => ({ ...o, [item.id]: v }))
                     }
                     options={[
                       { label: "Task", value: "task" },

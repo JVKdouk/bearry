@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+.next/
+*.tsbuildinfo
+
+# Secrets — only .env.example is ever committed.
+.env
+.env.*
+!.env.example
+
+# Generated Prisma client and migration artefacts
+.generated/
+prisma/prisma/client/
+
+# Logs and local runtime state
+logs/
+*.log
+uploads/
+
+# Editor and OS noise. .vscode is deliberately NOT ignored: the settings and
+# extension recommendations there are shared policy, not personal preference.
+.DS_Store
+.idea/
+*.swp

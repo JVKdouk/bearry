@@ -21,7 +21,7 @@ const PRIORITY_MARK: Record<string, string> = { ASAP: "🔴", high: "🔴", medi
 // Escape light-Markdown control chars in user-supplied text so a task/event
 // title can't break formatting (the text is later rendered to HTML for email).
 function esc(s: string): string {
-  return s.replace(/[_*[\]`]/g, "\\$&");
+  return s.replaceAll(/[_*[\]`]/g, String.raw`\$&`);
 }
 
 /** Deterministic, warm message. Also the AI fallback. */
@@ -36,12 +36,12 @@ export function renderTemplate(d: DigestData): string {
   }
   lines.push("");
 
-  if (d.events.length) {
+  if (d.events.length > 0) {
     lines.push("*Scheduled*");
     for (const e of d.events.slice(0, 12)) lines.push(`• ${e.time} — ${esc(e.title)}`);
     lines.push("");
   }
-  if (d.tasks.length) {
+  if (d.tasks.length > 0) {
     lines.push(d.range === "day" ? "*To do today*" : "*Due this week*");
     for (const t of d.tasks.slice(0, 12)) {
       lines.push(`${PRIORITY_MARK[t.priority] ?? "•"} ${esc(t.title)}${t.due ? ` _(by ${esc(t.due)})_` : ""}`);
@@ -49,8 +49,7 @@ export function renderTemplate(d: DigestData): string {
     lines.push("");
   }
   if (d.overdue > 0) {
-    lines.push(`_${d.overdue} thing${d.overdue === 1 ? "" : "s"} slipped — no stress, tap "replan" when you're ready._`);
-    lines.push("");
+    lines.push(`_${d.overdue} thing${d.overdue === 1 ? "" : "s"} slipped — no stress, tap "replan" when you're ready._`, "");
   }
   if (d.events.length === 0 && d.tasks.length === 0) {
     lines.push("Nothing on the books. A rare open canvas — enjoy it. 🌿");
@@ -61,7 +60,7 @@ export function renderTemplate(d: DigestData): string {
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+  return s.replaceAll(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }
 
 /** Convert the digest's light Markdown (*bold*, _italic_, • bullets) to HTML. */
@@ -69,7 +68,7 @@ export function mdLiteToHtml(text: string): string {
   let html = "";
   let inList = false;
   for (const raw of text.split("\n")) {
-    const line = escapeHtml(raw).replace(/\*(.+?)\*/g, "<strong>$1</strong>").replace(/_(.+?)_/g, "<em>$1</em>");
+    const line = escapeHtml(raw).replaceAll(/\*(.+?)\*/g, "<strong>$1</strong>").replaceAll(/_(.+?)_/g, "<em>$1</em>");
     const bullet = /^\s*(•|🔴|🟡|🔵)/.test(raw);
     if (bullet) {
       if (!inList) { html += "<ul style='margin:8px 0;padding-left:20px'>"; inList = true; }

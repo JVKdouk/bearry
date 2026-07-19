@@ -5,6 +5,7 @@ import { PermissionError } from "./permissionError";
 import { UserNotFoundError } from "./userNotFound";
 import { AuthenticationError } from "./authenticationError";
 import { reportTelemetryError } from "../telemetry";
+import { AiBudgetExceededError } from "@/src/lib/security/aiBudget";
 
 export default function errorHandler(
   error: FastifyError,
@@ -18,6 +19,19 @@ export default function errorHandler(
       .clearCookie("token")
       .status(error.status)
       .send({ message: error.message });
+  }
+
+  // Spending your own AI budget is normal use, not an incident — answer 429
+  // with a Retry-After so the client can say when it'll work again, and keep it
+  // out of telemetry alongside the auth failures.
+  if (error instanceof AiBudgetExceededError) {
+    return res
+      .header("Retry-After", String(error.retryAfterSeconds))
+      .status(429)
+      .send({
+        message:
+          "You've used this hour's AI suggestions. Everything else keeps working — try again shortly.",
+      });
   }
 
   // Invalid/unknown-key request bodies (strict zod) are client errors, not 500s.

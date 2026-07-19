@@ -77,13 +77,8 @@ function buildStaticProviderView(p: ReturnType<typeof listProviders>[number]) {
 }
 
 function staticViews(): StaticProviderView[] {
-  if (!staticProviderViews) staticProviderViews = listProviders().map(buildStaticProviderView);
+  if (!staticProviderViews) staticProviderViews = listProviders().map((p) => buildStaticProviderView(p));
   return staticProviderViews;
-}
-
-/** Test hook: drop the memo when the registry is re-seeded between cases. */
-export function resetProviderViewCache(): void {
-  staticProviderViews = null;
 }
 
 export async function listForUser(userId: string) {
@@ -269,7 +264,7 @@ export async function syncConnection(
     byType: summary.byType,
     errors,
     logs,
-    note: errors.length ? `${errors.length} item(s) rejected by schema validation` : undefined,
+    note: errors.length > 0 ? `${errors.length} item(s) rejected by schema validation` : undefined,
   };
 }
 
@@ -312,7 +307,7 @@ export async function disconnectConnection(
   const provider = getProvider(row.providerId);
   if (provider?.disconnect) {
     const logs: string[] = [];
-    await provider.disconnect(makeContext(userId, row, actorSessionId, logs)).catch(() => undefined);
+    await provider.disconnect(makeContext(userId, row, actorSessionId, logs)).catch(() => {});
   }
   await database.integration.delete({ where: { id: row.id } });
   // Leave ImportedItem rows so already-ingested entities keep their provenance.

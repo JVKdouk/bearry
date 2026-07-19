@@ -11,7 +11,6 @@ import {
   createCipheriv,
   createDecipheriv,
   randomBytes,
-  timingSafeEqual,
 } from "node:crypto";
 
 const ALGO = "aes-256-gcm";
@@ -106,10 +105,6 @@ export function openFromString(key: Buffer, packed: string, aad?: Buffer): strin
   return open(key, unpack(Buffer.from(packed, "base64")), aad).toString("utf8");
 }
 
-/** Constant-time buffer comparison, re-exported so callers never hand-roll it. */
-export function constantTimeEqual(a: Buffer, b: Buffer): boolean {
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
+export { KEY_BYTES, NONCE_BYTES, TAG_BYTES,  };
 
-export { KEY_BYTES, NONCE_BYTES, TAG_BYTES, randomBytes };
+export {randomBytes} from "node:crypto";

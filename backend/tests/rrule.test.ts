@@ -22,7 +22,7 @@ import {
 const at = (s: string) => new Date(s);
 const fmt = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const list = (ds: Date[]) => ds.map(fmt);
+const list = (ds: Date[]) => ds.map((d) => fmt(d));
 
 // --- parsing --------------------------------------------------------------
 

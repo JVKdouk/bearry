@@ -29,13 +29,12 @@ import {
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
-import { api } from "@/lib/api";
+import { api, errText } from "@/lib/api";
 import { useUI } from "@/store/ui";
 import { useSync } from "@/store/sync";
 import { useIsOffline } from "@/store/network";
 import { useCollection, useRecord } from "@/store/hooks";
 import { LIFE_AREAS, PRIORITY_COLOR, durationLabel } from "@/lib/format";
-import { describeRepeat } from "@/lib/recurrence";
 import { SchedulePopover, type ScheduleValue } from "@/components/SchedulePopover";
 import { SURFACE } from "@/lib/theme";
 import type { Priority, Todo } from "@/lib/types";
@@ -244,8 +243,11 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
           ? "Marked as a reminder — it won't be scheduled as work"
           : r.reason,
       );
-    } catch {
-      message.error("Couldn't estimate this task");
+    } catch (e) {
+      // Surface what the server said when it explained itself — "you've used
+      // this hour's AI suggestions" tells the user what to do; a flat
+      // "couldn't estimate" leaves them retrying into the same wall.
+      message.error(errText(e, "Couldn't estimate this task"));
     } finally {
       setEnriching(false);
     }
@@ -280,8 +282,8 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
             ? `Added ${suggested.length} steps from your notes`
             : `Added ${suggested.length} starter steps — edit them to fit`,
       );
-    } catch {
-      message.error("Couldn't suggest steps");
+    } catch (e) {
+      message.error(errText(e, "Couldn't suggest steps"));
     } finally {
       setSuggesting(false);
     }
@@ -308,7 +310,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   }
 
   const done = v.status === "done";
-  const priority = (v.priority ?? "medium") as Priority;
+  const priority = (v.priority ?? "medium");
   const canCreate = !!(draft.title ?? "").trim();
 
   /**
@@ -365,7 +367,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       content={
         <Segmented
           value={priority}
-          onChange={(val) => patch({ priority: val as Priority })}
+          onChange={(val) => patch({ priority: val })}
           options={PRIORITY_OPTS}
         />
       }

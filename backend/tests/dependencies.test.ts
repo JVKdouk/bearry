@@ -191,9 +191,9 @@ test("dependents of an unplaceable task are reported, not silently dropped", () 
     ),
   );
   assert.equal(out.blocks.length, 0);
-  const ids = out.unscheduled.map((u) => u.taskId);
-  assert.ok(ids.includes("huge"));
-  assert.ok(ids.includes("after"), "the dependent must be accounted for");
+  const ids = new Set(out.unscheduled.map((u) => u.taskId));
+  assert.ok(ids.has("huge"));
+  assert.ok(ids.has("after"), "the dependent must be accounted for");
   const afterReason = out.unscheduled.find((u) => u.taskId === "after")!.reason;
   assert.match(afterReason, /waiting on another task/i);
 });
