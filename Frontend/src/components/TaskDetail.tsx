@@ -565,7 +565,20 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       </div>
 
       {/* markdown-style editor */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
+      {/* A column, so the notes editor can take whatever height the title and
+          steps don't. `minHeight: 0` is what lets it actually shrink — without
+          it a flex item refuses to go below its content size and the editor
+          would push the drawer into scrolling instead of resizing. */}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
+          padding: "18px 22px",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
         <input
           value={v.title ?? ""}
           onChange={(e) => patch({ title: e.target.value })}
@@ -586,6 +599,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
             lineHeight: 1.2,
             marginBottom: 14,
             textDecoration: done ? "line-through" : "none",
+            flexShrink: 0,
           }}
         />
         {/* Sub-steps — the first one is the "just start" step.
@@ -594,7 +608,10 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
             step was to ask the AI for one, which made a manual checklist
             impossible and put a network round-trip in front of typing. */}
         {!isCreate && (
-          <div style={{ marginBottom: 16 }}>
+          // Never compressed: a checklist item squeezed to half a line is
+          // unreadable, so steps keep their natural height and the notes
+          // editor gives up space instead.
+          <div style={{ marginBottom: 16, flexShrink: 0 }}>
             {steps.map((s) => (
               <div
                 key={s.id}
@@ -672,7 +689,14 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
           placeholder="Start writing — notes, links, sub-steps…"
           style={{
             width: "100%",
-            minHeight: 160,
+            // Takes every pixel the title and steps leave behind, so the
+            // writing area is the whole drawer rather than a 160px box with
+            // dead space under it. Adding steps shrinks it rather than
+            // stranding it; the floor stops a long checklist squeezing the
+            // editor down to a single line, at which point the drawer scrolls
+            // instead.
+            flex: "1 1 auto",
+            minHeight: 140,
             border: "none",
             outline: "none",
             resize: "none",
