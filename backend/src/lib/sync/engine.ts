@@ -249,7 +249,46 @@ async function advanceRecurrence(
   } else {
     out.deadline = next;
   }
+
+  // The reminders move with it. The server is what advanced this task, so the
+  // server has to carry its reminders forward too — otherwise the next
+  // occurrence inherits reminders pointing at the previous one's time, already
+  // marked delivered, and silently never fires again.
+  await shiftReminders(userId, todoId, anchor, next);
+
   return out;
+}
+
+/**
+ * Re-point a task's reminders after its occurrence moved.
+ *
+ * Each keeps its own lead time (an hour before stays an hour before), and
+ * `delivered` resets so the new occurrence actually notifies. Reminders whose
+ * new moment is already past are left delivered rather than firing immediately
+ * on a task that just rolled forward.
+ */
+async function shiftReminders(
+  userId: string,
+  todoId: string,
+  from: Date,
+  to: Date,
+): Promise<void> {
+  const reminders = await database.reminder.findMany({
+    where: { userId, targetType: "todo", targetId: todoId, deletedAt: null },
+    select: { id: true, offsetMinutes: true },
+  });
+  if (reminders.length === 0) return;
+
+  const now = Date.now();
+  await Promise.all(
+    reminders.map((r) => {
+      const fireAt = new Date(to.getTime() - r.offsetMinutes * 60_000);
+      return database.reminder.update({
+        where: { id: r.id },
+        data: { fireAt, delivered: fireAt.getTime() <= now },
+      });
+    }),
+  );
 }
 
 /** Apply a batch of client ops; returns a per-op result the client reconciles. */

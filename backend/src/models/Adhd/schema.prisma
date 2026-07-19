@@ -39,6 +39,20 @@ model Reminder {
   triggerSpec String       /// (enc) JSON: time or geofence params
   delivered   Boolean      @default(false)
 
+  /// When this fires. CLEARTEXT and indexed, deliberately: the delivery sweep
+  /// has to find what's due across all users every minute, and doing that
+  /// against an encrypted column would mean decrypting every reminder of every
+  /// user on every tick — the exact mass-decrypt the rate limiter exists to
+  /// stop (§5.4, §9.7). A timestamp reveals that *something* is scheduled, not
+  /// what it is; the title stays encrypted and is only decrypted for the
+  /// handful actually being sent.
+  fireAt DateTime?
+
+  /// Minutes before the target's start. 0 = at the time itself. Kept alongside
+  /// `fireAt` so a reminder can be re-derived when the task moves, rather than
+  /// being orphaned at a time that no longer relates to anything.
+  offsetMinutes Int @default(0)
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   version   Int       @default(1)
@@ -46,7 +60,42 @@ model Reminder {
 
   @@index([userId])
   @@index([userId, delivered])
+  /// The delivery sweep's exact query shape.
+  @@index([fireAt, delivered])
+  /// Delta-sync hot path.
+  @@index([userId, updatedAt])
   @@map("reminders")
+}
+
+/// A device registered for Web Push.
+///
+/// Endpoint and keys are cleartext, which is safe for a specific reason: Web
+/// Push will only deliver to an endpoint when the request is signed with our
+/// VAPID private key, and that lives in the environment, never in the
+/// database. A dump of this table therefore does not let anyone push anything
+/// to a user's device — it reveals only that they use a given browser vendor's
+/// push service.
+model PushSubscription {
+  id       String @id @default(cuid())
+  userId   String
+  /// The push service URL. Unique across users: a device that re-subscribes
+  /// with the same endpoint is the same device, not a second one.
+  endpoint String @unique
+  p256dh   String
+  auth     String
+  /// For showing the user which devices are registered.
+  label    String?
+
+  /// Consecutive delivery failures. A subscription that keeps failing is a
+  /// device that's gone; retrying it forever wastes a request per reminder.
+  failureCount Int @default(0)
+  lastUsedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("push_subscriptions")
 }
 
 /// Derived (not self-reported) signals that drive the overwhelm detector and the

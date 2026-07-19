@@ -134,3 +134,63 @@ self.addEventListener("fetch", (event) => {
     }),
   );
 });
+
+/* -------------------------------------------------------------------------- */
+/* Push notifications                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A push arrives whether or not the app is open, so this handler has to stand
+ * on its own — no store, no React, nothing but the payload.
+ *
+ * The browser will show its own generic "This site has been updated in the
+ * background" notice if a push handler resolves without showing anything, so
+ * every path here must end in showNotification, including the malformed-payload
+ * one. A confusing notification we wrote beats a confusing one we didn't.
+ */
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = {};
+  }
+
+  const title = payload.title || "Bearry";
+  const options = {
+    body: payload.body || "You have a reminder.",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    // Same tag replaces rather than stacks: a reminder for a task you already
+    // have a notification about shouldn't produce two.
+    tag: payload.tag || "bearry-reminder",
+    renotify: true,
+    data: { url: payload.url || "/today" },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+/**
+ * Clicking should land you on the thing, and should REUSE an open tab rather
+ * than opening a second copy of the app — a reminder that leaves you with four
+ * Bearry tabs is its own small punishment.
+ */
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || "/today";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("focus" in client) {
+          // Navigate the existing tab, then focus it. Focusing without
+          // navigating leaves you looking at whatever you were on before.
+          if ("navigate" in client) client.navigate(target).catch(() => {});
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(target);
+    }),
+  );
+});

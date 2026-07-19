@@ -190,6 +190,16 @@ export const api = {
       body: { ops },
     }),
 
+  // Push notifications
+  pushConfig: () =>
+    request<{ enabled: boolean; publicKey: string | null; devices: number }>("/push/config"),
+  pushSubscribe: (body: { endpoint: string; keys: { p256dh: string; auth: string }; label?: string }) =>
+    request<{ ok: boolean }>("/push/subscribe", { method: "POST", body }),
+  pushUnsubscribe: (endpoint: string) =>
+    request<{ ok: boolean }>("/push/unsubscribe", { method: "POST", body: { endpoint } }),
+  pushTest: () =>
+    request<{ sent: number; failed: number; pruned: number }>("/push/test", { method: "POST" }),
+
   // Capture
   captureList: () => request<{ items: CaptureItem[] }>("/capture/"),
   // The endpoint names the raw field `text`; `rawContent` is the stored column.

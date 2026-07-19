@@ -35,6 +35,7 @@ import { useCollection, useRecord } from "@/store/hooks";
 import { LIFE_AREAS, PRIORITY_COLOR } from "@/lib/format";
 import { SchedulePopover, type ScheduleValue } from "@/components/SchedulePopover";
 import { nextQuarterHour, taskToEvent, taskToNote } from "@/lib/convert";
+import { fireAtFor, rescheduleReminders } from "@/lib/reminders";
 import { SURFACE } from "@/lib/theme";
 import type { Priority, Todo } from "@/lib/types";
 
@@ -109,6 +110,20 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
    * offline, and need no new table. The scheduler reads the same rows and won't
    * start a task before everything blocking it has finished.
    */
+  /**
+   * Reminders for this task. They're ordinary syncable rows, so they work
+   * offline and need no bespoke endpoint — the server sweep just reads
+   * `fireAt`.
+   */
+  const allReminders = useCollection("reminder");
+  const reminders = useMemo(
+    () =>
+      allReminders
+        .filter((r) => r.targetType === "todo" && r.targetId === editingId && !r.deletedAt)
+        .sort((a, b) => a.offsetMinutes - b.offsetMinutes),
+    [allReminders, editingId],
+  );
+
   const links = useCollection("link");
   const blockedByIds = useMemo(
     () =>
@@ -376,6 +391,34 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
    * changing the date has to rewrite start/end when a time is set, and clearing
    * the date has to drop the repeat rule with it.
    */
+  function addReminder(offsetMinutes: number) {
+    if (!editingId || !date) return;
+    const start = time ? date.hour(time.hour()).minute(time.minute()) : date.hour(9).minute(0);
+    create("reminder", {
+      targetType: "todo",
+      targetId: editingId,
+      kind: "time",
+      // triggerSpec is the encrypted record of intent; fireAt is the cleartext
+      // moment the sweep queries against.
+      triggerSpec: JSON.stringify({ offsetMinutes }),
+      offsetMinutes,
+      fireAt: fireAtFor(start.toDate(), offsetMinutes).toISOString(),
+    });
+  }
+
+  /**
+   * Move every reminder when the task's time changes.
+   *
+   * Done here because this is where the change originates and it has to work
+   * offline. Without it a reminder keeps pointing at the old moment — firing
+   * for a meeting that moved, or never firing at all.
+   */
+  function rescheduleAttachedReminders(start: Date | null) {
+    for (const patch of rescheduleReminders(reminders, start)) {
+      update("reminder", patch.id, { fireAt: patch.fireAt });
+    }
+  }
+
   function applySchedule(next: Partial<ScheduleValue>) {
     const d = next.date !== undefined ? next.date : date;
     const t = next.time !== undefined ? next.time : time;
@@ -389,6 +432,11 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       ...schedulePatch(d, t, dur),
       ...(next.recurrenceRule !== undefined ? { recurrenceRule: next.recurrenceRule } : {}),
     });
+
+    if (next.date !== undefined || next.time !== undefined) {
+      const start = d ? (t ? d.hour(t.hour()).minute(t.minute()) : d.hour(9).minute(0)) : null;
+      rescheduleAttachedReminders(start ? start.toDate() : null);
+    }
   }
 
   const datePill = (
@@ -404,10 +452,14 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
           onClear={() => {
             setDate(null);
             setTime(null);
+            rescheduleAttachedReminders(null);
             // A repeat rule with nothing to repeat from is dead config.
             patch({ ...schedulePatch(null, null, duration), recurrenceRule: null });
           }}
           onClose={() => setScheduleOpen(false)}
+          reminders={isCreate ? undefined : reminders}
+          onAddReminder={isCreate ? undefined : addReminder}
+          onRemoveReminder={(id) => remove("reminder", id)}
         />
       }
     >

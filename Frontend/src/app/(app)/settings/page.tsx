@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button, Card, Grid, Tabs, Typography } from "antd";
 import {
   ApiOutlined,
+  BellOutlined,
   BulbOutlined,
   CalendarOutlined,
   LeftOutlined,
@@ -16,6 +17,7 @@ import {
 import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/store/auth";
 import { AITab } from "./AITab";
+import { NotificationsTab } from "./NotificationsTab";
 import { DigestTab } from "./DigestTab";
 import { RhythmTab } from "./RhythmTab";
 import { SchedulingTab } from "./SchedulingTab";
@@ -73,6 +75,13 @@ const SECTIONS: Section[] = [
     blurb: "What the assistant may do for you",
     icon: <ApiOutlined />,
     render: () => <AITab />,
+  },
+  {
+    key: "notifications",
+    label: "Notifications",
+    blurb: "Reminders on your devices",
+    icon: <BellOutlined />,
+    render: () => <NotificationsTab />,
   },
   {
     key: "digests",

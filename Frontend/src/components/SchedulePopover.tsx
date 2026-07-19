@@ -24,9 +24,12 @@ import {
   ClockCircleOutlined,
   RetweetOutlined,
   SunOutlined,
+  BellOutlined,
+  CloseOutlined,
 } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
 import { describeRepeat, repeatOptions } from "@/lib/recurrence";
+import { chosenOffsets, offsetLabel, usableOffsets } from "@/lib/reminders";
 import { CustomRepeat } from "@/components/CustomRepeat";
 import { durationLabel } from "@/lib/format";
 
@@ -48,11 +51,20 @@ export interface ScheduleValue {
   recurrenceRule: string | null;
 }
 
+export interface ReminderChoice {
+  id: string;
+  offsetMinutes: number;
+}
+
 interface Props {
   value: ScheduleValue;
   onChange: (next: Partial<ScheduleValue>) => void;
   onClear: () => void;
   onClose: () => void;
+  /** Reminders already set. Omitted while creating, before there's an id. */
+  reminders?: ReminderChoice[];
+  onAddReminder?: (offsetMinutes: number) => void;
+  onRemoveReminder?: (id: string) => void;
 }
 
 function startOfToday(): Dayjs {
@@ -128,7 +140,15 @@ function repeatChoices(date: Dayjs, current: string | null) {
   return options;
 }
 
-export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
+export function SchedulePopover({
+  value,
+  onChange,
+  onClear,
+  onClose,
+  reminders,
+  onAddReminder,
+  onRemoveReminder,
+}: Props) {
   const [tab, setTab] = useState<"date" | "duration">("date");
   const [editingRepeat, setEditingRepeat] = useState(false);
   const [month, setMonth] = useState<Dayjs>(value.date ?? startOfToday());
@@ -139,6 +159,22 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
   const weeks = useMemo(() => monthMatrix(month), [month]);
 
   const selectedKey = value.date?.format("YYYY-MM-DD");
+
+  /**
+   * Offsets that can still fire and aren't already set.
+   *
+   * Both filters matter: an offset in the past would fire instantly or never,
+   * and a duplicate offset means two notifications for one thing, which reads
+   * as a bug even when the user created both.
+   */
+  const availableOffsets = useMemo(() => {
+    if (!value.date) return [];
+    const start = value.time
+      ? value.date.hour(value.time.hour()).minute(value.time.minute())
+      : value.date.hour(9).minute(0);
+    const taken = chosenOffsets(reminders ?? []);
+    return usableOffsets(start.toDate()).filter((o) => !taken.has(o.minutes));
+  }, [value.date, value.time, reminders]);
 
   function pick(date: Dayjs, time?: Dayjs) {
     onChange({ date, ...(time ? { time } : {}) });
@@ -291,6 +327,48 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
                 options={repeatChoices(value.date, value.recurrenceRule ?? null)}
                 style={{ width: 168 }}
               />
+            </Row>
+          )}
+
+          {/* Reminders need a moment to count back from, so they appear only
+              once there's a date. Offsets that could no longer fire are hidden
+              rather than offered and silently ignored. */}
+          {value.date && onAddReminder && !editingRepeat && (
+            <Row icon={<BellOutlined />} label="Remind me">
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                {(reminders ?? []).map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => onRemoveReminder?.(r.id)}
+                    aria-label={`Remove reminder ${offsetLabel(r.offsetMinutes)}`}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: ACCENT,
+                      fontSize: 12,
+                      cursor: "pointer",
+                      padding: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                    }}
+                  >
+                    {offsetLabel(r.offsetMinutes)}
+                    <CloseOutlined style={{ fontSize: 9, opacity: 0.7 }} />
+                  </button>
+                ))}
+                <Select
+                  size="small"
+                  variant="borderless"
+                  value={null}
+                  placeholder={(reminders ?? []).length > 0 ? "Add another" : "Add a reminder"}
+                  onChange={(m: number) => onAddReminder(m)}
+                  style={{ width: 150 }}
+                  options={availableOffsets.map((o) => ({ label: o.label, value: o.minutes }))}
+                  notFoundContent="Too soon for a reminder"
+                />
+              </div>
             </Row>
           )}
 

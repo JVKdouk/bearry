@@ -126,6 +126,26 @@ export interface Link extends SyncBase {
   linkType: "reference" | "derived_from" | "blocks";
 }
 
+/**
+ * A scheduled notification for a task or event.
+ *
+ * `fireAt` is cleartext so the server's delivery sweep can query it without
+ * decrypting every user's data; `triggerSpec` carries the encrypted record of
+ * what was asked for. `delivered` is server-owned and deliberately absent from
+ * the sync whitelist — a client that could reset it could replay every
+ * notification it ever received.
+ */
+export interface Reminder extends SyncBase {
+  targetType: "todo" | "event";
+  targetId: string;
+  kind: "time" | "location" | "resurface";
+  triggerSpec: string;
+  /** Minutes before the target starts. 0 = at the time itself. */
+  offsetMinutes: number;
+  fireAt?: string | null;
+  delivered?: boolean;
+}
+
 export interface Setting extends SyncBase {
   key: string;
   value: string;
@@ -142,6 +162,7 @@ export interface SyncEntities {
   energyWindow: EnergyWindow;
   blockRegion: BlockRegion;
   link: Link;
+  reminder: Reminder;
   setting: Setting;
 }
 

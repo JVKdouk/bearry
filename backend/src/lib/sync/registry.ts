@@ -88,6 +88,16 @@ export const SYNCABLES: readonly SyncableEntity[] = [
     writable: ["label", "category", "dayMask", "start", "end"],
   },
   {
+    entity: "reminder",
+    model: "Reminder",
+    delegate: database.reminder,
+    // `delivered` is deliberately absent: the server owns it, and letting a
+    // client reset it would let a device replay every notification it ever
+    // received. `fireAt` IS writable because the client computes it from the
+    // task's time and the chosen offset, offline, like everything else here.
+    writable: ["targetType", "targetId", "kind", "triggerSpec", "fireAt", "offsetMinutes"],
+  },
+  {
     entity: "setting",
     model: "Setting",
     delegate: database.setting,

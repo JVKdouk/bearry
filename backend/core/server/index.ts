@@ -13,6 +13,7 @@ import { overloadGuard, overloadRelease } from "@/core/middlewares/overload";
 import { startSessionSweep } from "@/src/lib/sessionCleanup";
 import { startTombstoneSweep } from "@/src/lib/sync/tombstones";
 import { startDigestSchedule } from "@/src/lib/digest/runner";
+import { startReminderSweep } from "@/src/lib/notifications/reminders";
 import type { SafeUser } from "@/core/middlewares/auth";
 
 import "@/core/config";
@@ -140,5 +141,6 @@ export default async function startServer() {
     startSessionSweep();
     startTombstoneSweep();
     startDigestSchedule();
+    startReminderSweep();
   });
 }
