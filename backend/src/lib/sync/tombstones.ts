@@ -83,6 +83,12 @@ export async function sweepTombstones(now = new Date()): Promise<SweepResult> {
 const SWEEP_INTERVAL_MS = Number(process.env.TOMBSTONE_SWEEP_HOURS ?? 24) * 3600_000;
 
 export function startTombstoneSweep(): void {
+  // Opt-in, because this is the one background job that PERMANENTLY removes
+  // rows. Everything else here is additive or recoverable. A deploy should
+  // never start deleting data as a side effect of shipping — enabling it is a
+  // decision someone makes on purpose, with the retention window in mind.
+  if (process.env.TOMBSTONE_SWEEP_ENABLED !== "true") return;
+
   const run = async () => {
     try {
       const { removed, byEntity } = await sweepTombstones();
