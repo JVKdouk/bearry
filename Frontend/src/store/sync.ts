@@ -16,6 +16,7 @@ import type { EntityName, SyncEntities } from "@/lib/types";
 const ENTITIES: EntityName[] = [
   "project",
   "block",
+  "projectMember",
   "taskStep",
   "reminder",
   "timeBlock",
@@ -38,6 +39,7 @@ function emptyCollections(): RawCollections {
   return {
     project: {},
     block: {},
+    projectMember: {},
     taskStep: {},
     reminder: {},
     timeBlock: {},

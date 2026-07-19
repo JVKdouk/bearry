@@ -43,6 +43,8 @@ import { ReminderPicker } from "@/components/ReminderPicker";
 import { convertLoses, convertTo, nextQuarterHour } from "@/lib/convert";
 import { fireAtFor, isOffsetUsable, rescheduleReminders } from "@/lib/reminders";
 import { chunkingLabel, isChunkable } from "@/lib/chunking";
+import { useAuth } from "@/store/auth";
+import { accessTo, canEdit } from "@/lib/access";
 import { SURFACE } from "@/lib/theme";
 import type { Block, Priority } from "@/lib/types";
 
@@ -87,6 +89,16 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   const remove = useSync((s) => s.remove);
   const projects = useCollection("project");
   const editing = useRecord("block", editingId);
+  const memberships = useCollection("projectMember");
+  const { user } = useAuth();
+  // A task in a list shared to you read-only can be opened but not changed. The
+  // server refuses the writes regardless; this just stops the drawer offering
+  // edits that would silently bounce. Never read-only while creating — a new
+  // task is always yours until it's saved.
+  const readOnly =
+    !!editingId &&
+    !!editing?.projectId &&
+    !canEdit(accessTo(projects.find((p) => p.id === editing.projectId), user?.id, memberships));
 
   // Create mode keeps an in-memory draft — nothing is written to the store (or
   // shows up on the calendar) until the user explicitly confirms with Create.
@@ -278,6 +290,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       setDraft((d) => ({ ...d, ...p }));
       return;
     }
+    if (readOnly) return;
     const next = { ...p };
     if (imported) {
       const newly = (["title", "body", "location"] as const).filter(
@@ -851,11 +864,24 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
           borderBottom: `1px solid ${SURFACE.borderSoft}`,
         }}
       >
-        {!isCreate && (
+        {!isCreate && !readOnly && (
           <Checkbox
             checked={done}
             onChange={(e) => patch({ status: e.target.checked ? "done" : "todo" })}
           />
+        )}
+        {readOnly && (
+          <span
+            style={{
+              fontSize: 11.5,
+              color: "#8f8fa2",
+              border: "1px solid #2a2a37",
+              borderRadius: 8,
+              padding: "3px 8px",
+            }}
+          >
+            View only
+          </span>
         )}
         {/* Task or event, chosen up front — the two behave differently enough
             that deciding afterwards means re-entering the same information. */}
@@ -897,6 +923,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
         <input
           value={v.title ?? ""}
           onChange={(e) => patch({ title: e.target.value })}
+          readOnly={readOnly}
           placeholder={
             isCreate ? (createKind === "event" ? "What's happening?" : "What needs doing?") : "Untitled"
           }
@@ -1006,6 +1033,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
         <textarea
           value={v.body ?? ""}
           onChange={(e) => patch({ body: e.target.value || null })}
+          readOnly={readOnly}
           placeholder="Start writing — notes, links, sub-steps…"
           style={{
             width: "100%",
@@ -1031,6 +1059,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       </div>
 
       {/* bottom toolbar */}
+      {!readOnly && (
       <div
         style={{
           display: "flex",
@@ -1107,6 +1136,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
           </Popconfirm>
         )}
       </div>
+      )}
     </div>
   );
 

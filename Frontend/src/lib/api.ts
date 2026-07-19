@@ -314,4 +314,49 @@ export const api = {
   }) => request<unknown>("/digest/settings", { method: "POST", body }),
   digestPreview: () => request<{ html: string }>("/digest/preview", { method: "POST" }),
   digestSend: () => request<unknown>("/digest/send", { method: "POST" }),
+
+  // Sharing. Memberships flow to the client through sync (read-only); these
+  // endpoints are the write side — create a link, accept one, manage who's in.
+  shareCreate: (projectId: string, role: "view" | "write") =>
+    request<{ token: string; role: "view" | "write" }>(
+      `/sharing/projects/${projectId}/invites`,
+      { method: "POST", body: { role } },
+    ),
+  /** Public: works before the clicker has an account. */
+  invitePreview: (token: string) =>
+    request<{
+      token: string;
+      role: "view" | "write";
+      listName: string;
+      color: string;
+      icon: string | null;
+      expired: boolean;
+      revoked: boolean;
+    }>(`/sharing/invites/${token}`),
+  inviteAccept: (token: string) =>
+    request<{ projectId: string; role: string; alreadyMember: boolean }>(
+      `/sharing/invites/${token}/accept`,
+      { method: "POST" },
+    ),
+  shareMembers: (projectId: string) =>
+    request<{
+      members: {
+        userId: string;
+        role: "view" | "write" | "owner";
+        email: string;
+        name: string | null;
+        isOwner: boolean;
+      }[];
+      invites: { id: string; token: string; role: "view" | "write" }[];
+      canManage: boolean;
+    }>(`/sharing/projects/${projectId}/members`),
+  shareSetRole: (projectId: string, userId: string, role: "view" | "write") =>
+    request<unknown>(`/sharing/projects/${projectId}/members/${userId}`, {
+      method: "PATCH",
+      body: { role },
+    }),
+  shareRemoveMember: (projectId: string, userId: string) =>
+    request<unknown>(`/sharing/projects/${projectId}/members/${userId}`, { method: "DELETE" }),
+  shareRevoke: (inviteId: string) =>
+    request<unknown>(`/sharing/invites/${inviteId}`, { method: "DELETE" }),
 };

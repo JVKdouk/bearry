@@ -25,6 +25,8 @@ export interface SyncBase {
 }
 
 export interface Project extends SyncBase {
+  /** The owner. On a shared list, this is someone other than you. */
+  userId?: string;
   name: string;
   color: string;
   /** A single emoji, or null for the plain colour dot. */
@@ -93,6 +95,17 @@ export interface Block extends SyncBase {
   /** Set on planner-placed blocks — the task this block is doing time for. */
   planForId?: string | null;
   scheduleReason?: string | null;
+  /** Who added it, when that isn't the list owner (shared lists only). */
+  createdById?: string | null;
+}
+
+/** A person's access to a shared list. Read-only from the client's side. */
+export interface ProjectMember extends SyncBase {
+  projectId: string;
+  /** The member (you, or a co-member of a list you're in / own). */
+  userId: string;
+  role: "view" | "write";
+  invitedById?: string | null;
 }
 
 export interface TaskStep extends SyncBase {
@@ -165,6 +178,7 @@ export interface Setting extends SyncBase {
 export interface SyncEntities {
   project: Project;
   block: Block;
+  projectMember: ProjectMember;
   taskStep: TaskStep;
   timeBlock: TimeBlock;
   energyWindow: EnergyWindow;

@@ -153,7 +153,32 @@ async function sharedChanges(
   const bump = (c: Date | null) => {
     if (c && (!nextCursor || c < nextCursor)) nextCursor = c;
   };
-  const sinceWhere = since ? { updatedAt: { gt: since } } : {};
+
+  // Lists the user joined *after* their cursor. Their existing content predates
+  // the cursor, so a plain `updatedAt > since` delta would skip it entirely —
+  // the member accepts an invite and sees an empty list. For those projects the
+  // cursor is ignored and the full current content is sent; the client merge is
+  // idempotent, so re-sending costs nothing once caught up.
+  const freshMemberships = since
+    ? await database.projectMember.findMany({
+        where: { userId, deletedAt: null, createdAt: { gt: since } },
+        select: { projectId: true },
+      })
+    : [];
+  const freshIds = new Set(freshMemberships.map((m) => m.projectId));
+
+  /** WHERE clause for shared content scoped to `projectId`, respecting freshness. */
+  const scopedWhere = (projectIds: string[]) => {
+    if (!since) return { projectId: { in: projectIds } };
+    const fresh = projectIds.filter((id) => freshIds.has(id));
+    const delta = projectIds.filter((id) => !freshIds.has(id));
+    return {
+      OR: [
+        ...(delta.length > 0 ? [{ projectId: { in: delta }, updatedAt: { gt: since } }] : []),
+        ...(fresh.length > 0 ? [{ projectId: { in: fresh } }] : []),
+      ],
+    };
+  };
 
   // A crypto context per owner, resolved lazily. Decrypting another user's rows
   // legitimately touches their key — the decrypt limiter counts distinct users,
@@ -187,8 +212,13 @@ async function sharedChanges(
 
   // Shared projects (I'm a member of, owned by others).
   if (memberIds.length > 0) {
+    // The project row itself: fresh lists ignore the cursor, so the list
+    // appears the moment you join even though it was created long ago.
+    const freshMemberIds = memberIds.filter((id) => freshIds.has(id));
     const projects = await database.project.findMany({
-      where: { id: { in: memberIds }, ...sinceWhere },
+      where: since
+        ? { id: { in: memberIds }, OR: [{ updatedAt: { gt: since } }, { id: { in: freshMemberIds } }] }
+        : { id: { in: memberIds } },
       orderBy: { updatedAt: "asc" },
       take: PAGE_LIMIT + 1,
     });
@@ -196,7 +226,7 @@ async function sharedChanges(
     changes.project = await decryptByOwner("Project", capPage(projects) as { userId: string }[]);
 
     const blocks = await database.block.findMany({
-      where: { projectId: { in: memberIds }, ...sinceWhere },
+      where: scopedWhere(memberIds),
       orderBy: { updatedAt: "asc" },
       take: PAGE_LIMIT + 1,
     });
@@ -205,11 +235,17 @@ async function sharedChanges(
     changes.block = await decryptByOwner("Block", blockPage as { userId: string }[]);
 
     // Steps of shared blocks. Scoped by blockId so a member only gets steps for
-    // blocks they can already see.
+    // blocks they can already see, and — like the blocks — steps of a
+    // freshly-joined list ignore the cursor so they arrive on the first pull.
     const blockIds = blockPage.map((b) => (b as { id: string }).id);
+    const freshBlockIds = (blockPage as { id: string; projectId: string | null }[])
+      .filter((b) => b.projectId && freshIds.has(b.projectId))
+      .map((b) => b.id);
     if (blockIds.length > 0) {
       const steps = await database.taskStep.findMany({
-        where: { blockId: { in: blockIds }, ...sinceWhere },
+        where: since
+          ? { blockId: { in: blockIds }, OR: [{ updatedAt: { gt: since } }, { blockId: { in: freshBlockIds } }] }
+          : { blockId: { in: blockIds } },
         orderBy: { updatedAt: "asc" },
         take: PAGE_LIMIT + 1,
       });
@@ -224,7 +260,7 @@ async function sharedChanges(
   const rosterProjectIds = [...new Set([...memberIds, ...ownedIds])];
   if (rosterProjectIds.length > 0) {
     const memberRows = await database.projectMember.findMany({
-      where: { projectId: { in: rosterProjectIds }, ...sinceWhere },
+      where: scopedWhere(rosterProjectIds),
       orderBy: { updatedAt: "asc" },
       take: PAGE_LIMIT + 1,
     });

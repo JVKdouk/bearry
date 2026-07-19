@@ -111,7 +111,49 @@ without pretending to solve it — which is why nothing the model returns is eve
 executed or used to schedule. The worst case for a successful injection is a
 badly-worded digest.
 
-## 8. Known limitations
+## 8. Shared lists
+
+A list can be shared with other people, who read and — per role — edit its
+tasks. The design decision, made deliberately: **shared content is
+server-readable**, exactly like personal content. It is *not* end-to-end
+encrypted between members.
+
+- **Storage model.** Everything in a shared list — the project row, its blocks,
+  their steps — is stored under the **owner's** userId and encrypted with the
+  **owner's** DEK, whoever wrote it. One list, one key. A member's write is
+  re-sealed under the owner on the way in (the server holds the owner's DEK via
+  the KEK, as it does for every server-side job) and decrypted under the owner
+  on the way out. `Block.createdById` records the actual author.
+- **Access control, not cryptography.** Membership is the boundary.
+  `ProjectMember` rows carry a role (`view`/`write`); `lib/sharing/access.ts`
+  and `lib/sharing/writeAuthz.ts` are the pure, tested predicates that gate
+  every read and write. The sync engine (`lib/sync/engine.ts`) enforces them: a
+  member's pull includes only projects they own or are a member of; a member's
+  push is refused unless their role permits it.
+- **What the rules refuse.** A `view` member cannot write. A non-member gets
+  nothing and can write nothing. A block cannot be re-keyed under a different
+  owner by a cross-owner move (a member pulling a shared task into their private
+  list, or pushing a private task into someone else's shared list) — v1 keeps
+  content where it was created.
+- **Share tokens.** `ProjectInvite.token` is 32 random bytes; possession is the
+  authorization to join with the embedded role, like a calendar-subscribe URL.
+  The token also authorises the anonymous invite *preview* (the list's name),
+  which is why that one endpoint decrypts a single field for an unauthenticated
+  request. A token is revocable and does not disturb anyone who already
+  accepted — a membership is a separate, durable row.
+
+**Why not true E2E.** True member-to-member E2E would require client-held
+keypairs (the list key wrapped to each member's public key, content
+encrypted/decrypted only on devices). This app's DEKs are server-held by
+design — that is what lets the scheduler, reminders, AI and digest read your
+data server-side — so a shared list encrypted so the server *cannot* read it
+would lose every one of those features on its tasks. That trade was considered
+and declined; sharing keeps the features, and the server-can-read property is
+the same one §8's "the server can read everything" already states for personal
+content. Client-held keys remain a possible future upgrade, and the per-list
+storage model does not preclude it.
+
+## 9. Known limitations
 
 Stated plainly rather than left implicit:
 
@@ -126,6 +168,6 @@ Stated plainly rather than left implicit:
   comes straight from Google's token endpoint over TLS, and the claim is used
   only as a local label and dedupe key — never for an authorization decision.
 
-## 9. Reporting
+## 10. Reporting
 
 Security issues: joao@kdouk.com.

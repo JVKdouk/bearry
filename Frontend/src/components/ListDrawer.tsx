@@ -21,6 +21,9 @@ import { useCollection } from "@/store/hooks";
 import { cleanName, LIST_PALETTE, nextColor } from "@/lib/lists";
 import { isSingleEmoji, LUCIDE_CHOICES, lucideValue, normalizeIcon, parseIcon } from "@/lib/listIcon";
 import { ListIcon } from "@/components/ListIcon";
+import { SharePanel } from "@/components/SharePanel";
+import { useAuth } from "@/store/auth";
+import { accessTo } from "@/lib/access";
 import { SURFACE } from "@/lib/theme";
 import type { Project } from "@/lib/types";
 
@@ -44,6 +47,10 @@ export function ListDrawer({ open, projectId, onClose, isMobile, onCreated }: Pr
 
   const editing = projectId ? projects.find((p) => p.id === projectId) : undefined;
   const isCreate = !projectId;
+
+  const { user } = useAuth();
+  const memberships = useCollection("projectMember");
+  const canShare = accessTo(editing, user?.id, memberships) === "owner";
 
   const [name, setName] = useState("");
   const [color, setColor] = useState<string>(LIST_PALETTE[0]);
@@ -343,6 +350,15 @@ export function ListDrawer({ open, projectId, onClose, isMobile, onCreated }: Pr
         {emojiDraft && !isSingleEmoji(emojiDraft) && (
           <div style={{ fontSize: 11, color: "#ff7875", marginTop: 6 }}>
             That needs to be a single emoji.
+          </div>
+        )}
+
+        {/* Sharing lives inside the list's own settings — there's no separate
+            "share" surface to keep in sync. Only for a list that exists and
+            that you own; a member editing a shared list can't re-share it. */}
+        {!isCreate && projectId && canShare && (
+          <div style={{ marginTop: 26, paddingTop: 18, borderTop: `1px solid ${SURFACE.borderSoft}` }}>
+            <SharePanel projectId={projectId} />
           </div>
         )}
       </div>

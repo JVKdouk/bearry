@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   App as AntdApp,
   Button,
@@ -17,9 +17,15 @@ import { api, ApiError, isOfflineError } from "@/lib/api";
 
 const { Title, Text } = Typography;
 
-export default function LoginPage() {
+function LoginInner() {
   const { message } = AntdApp.useApp();
   const { user, loading, login, signup } = useAuth();
+  const params = useSearchParams();
+  // A share link sends people here with ?next=/invite/<token>; after signing in
+  // they go back to accept rather than being dropped on Today. Only same-origin
+  // paths are honoured, so the param can't be used to bounce someone offsite.
+  const rawNext = params.get("next");
+  const next = rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/today";
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [submitting, setSubmitting] = useState(false);
@@ -50,8 +56,8 @@ export default function LoginPage() {
   }, [signupsOpen, mode]);
 
   useEffect(() => {
-    if (!loading && user) router.replace("/today");
-  }, [loading, user, router]);
+    if (!loading && user) router.replace(next);
+  }, [loading, user, router, next]);
 
   async function onFinish(values: {
     email: string;
@@ -65,7 +71,7 @@ export default function LoginPage() {
       } else {
         await login(values.email, values.password);
       }
-      router.replace("/today");
+      router.replace(next);
     } catch (err) {
       // Signing in is the one thing that genuinely can't happen offline — it
       // needs the server to verify the password and unwrap the key. Say that,
@@ -162,5 +168,19 @@ export default function LoginPage() {
         </div>
       </Card>
     </div>
+  );
+}
+
+/**
+ * useSearchParams (for ?next=) makes this a client-bailout page, which Next
+ * requires wrapped in Suspense so the shell can prerender. The fallback is a
+ * plain centred spinner rather than nothing, so a slow chunk doesn't flash an
+ * empty screen.
+ */
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="login-shell" />}>
+      <LoginInner />
+    </Suspense>
   );
 }

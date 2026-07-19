@@ -16,6 +16,8 @@ import { Pill } from "@/components/Pill";
 import { useCollection } from "@/store/hooks";
 import { useSync } from "@/store/sync";
 import { TEXT } from "@/lib/theme";
+import { useAuth } from "@/store/auth";
+import { accessTo, canEdit } from "@/lib/access";
 import { useUI, type ListView } from "@/store/ui";
 import { PRIORITY_COLOR, PRIORITY_LABEL } from "@/lib/format";
 import type { Block, TodoStatus } from "@/lib/types";
@@ -56,6 +58,13 @@ function ListsInner() {
   const view: ListView = listViews[listKey] ?? "list";
   const project = projects.find((p) => p.id === listKey);
   const isCompleted = listKey === "completed";
+
+  // A list shared to you read-only offers no way to add or change tasks. The
+  // pseudo-lists (all/none/completed) span everything you can already edit, so
+  // they stay editable.
+  const { user } = useAuth();
+  const memberships = useCollection("projectMember");
+  const readOnly = !!project && !canEdit(accessTo(project, user?.id, memberships));
 
   const title = useMemo(() => {
     if (listKey === "all") return "All tasks";
@@ -114,9 +123,24 @@ function ListsInner() {
               }))}
             />
           )}
-          <Button type="primary" icon={<PlusOutlined />} onClick={addTask}>
-            New task
-          </Button>
+          {!readOnly && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={addTask}>
+              New task
+            </Button>
+          )}
+          {readOnly && (
+            <span
+              style={{
+                fontSize: 12,
+                color: TEXT.tertiary,
+                border: "1px solid #2a2a37",
+                borderRadius: 8,
+                padding: "4px 10px",
+              }}
+            >
+              View only
+            </span>
+          )}
         </div>
       </div>
 

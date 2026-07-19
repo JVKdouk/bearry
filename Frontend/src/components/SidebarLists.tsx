@@ -17,6 +17,7 @@ import { useCollection } from "@/store/hooks";
 // antd's ColorPicker lives in here; lazy so it stays out of the layout bundle
 // that every page pays for. It only renders when a list is created or edited.
 import { ListIcon } from "@/components/ListIcon";
+import { UsergroupAddOutlined } from "@ant-design/icons";
 
 const ListDrawer = dynamic(
   () => import("@/components/ListDrawer").then((m) => m.ListDrawer),
@@ -123,12 +124,21 @@ export function SidebarLists({ onNavigate }: { onNavigate?: () => void }) {
   const params = useSearchParams();
   const projects = useCollection("project");
   const blocks = useCollection("block");
+  const memberships = useCollection("projectMember");
 
   // Creating and editing both open the same drawer: a list you just made and a
   // list you're fixing want the same controls, and two surfaces is how the two
   // drift. `null` id means create.
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Lists that involve other people, either shared to me or ones I own that
+  // have members. A single dim people-icon marks them in the rail.
+  const sharedIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const m of memberships) if (!m.deletedAt) ids.add(m.projectId);
+    return ids;
+  }, [memberships]);
 
   const activeProjects = useMemo(
     () => projects.filter((p) => !p.archived).sort((a, b) => a.order - b.order),
@@ -245,7 +255,19 @@ export function SidebarLists({ onNavigate }: { onNavigate?: () => void }) {
               key={p.id}
               active={onLists && selected === p.id}
               icon={<ListIcon icon={p.icon} color={p.color} size={15} />}
-              label={p.name}
+              label={
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {p.name}
+                  </span>
+                  {sharedIds.has(p.id) && (
+                    <UsergroupAddOutlined
+                      style={{ fontSize: 11, color: "#8f8fa2", flexShrink: 0 }}
+                      title="Shared"
+                    />
+                  )}
+                </span>
+              }
               count={counts.byProject.get(p.id)}
               onClick={() => go(`/lists?list=${p.id}`)}
               onSettings={() => openSettings(p.id)}
