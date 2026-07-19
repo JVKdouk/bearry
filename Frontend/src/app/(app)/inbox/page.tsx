@@ -302,7 +302,7 @@ export default function InboxPage() {
                     size="small"
                     value={chosen}
                     onChange={(v) =>
-                      setOverrides((o) => ({ ...o, [item.id]: v as string }))
+                      setOverrides((o) => ({ ...o, [item.id]: v }))
                     }
                     options={[
                       { label: "Task", value: "task" },

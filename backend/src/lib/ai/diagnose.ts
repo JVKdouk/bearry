@@ -95,13 +95,13 @@ export async function findFindings(
     const bare = await daysWithoutHours(userId, horizonStart, horizonEnd);
     findings.push({
       severity: "blocker",
-      title: bare.length
+      title: bare.length > 0
         ? `No working hours on ${bare.join(" or ")}`
         : "No open time in this range",
-      detail: bare.length
+      detail: bare.length > 0
         ? `Your schedule has no availability on ${bare.join(" or ")}, so nothing can be placed. Add hours for those days, or plan a day that has them.`
         : "Every hour in this range is already committed.",
-      action: bare.length ? "add_working_hours" : "plan_next_working_day",
+      action: bare.length > 0 ? "add_working_hours" : "plan_next_working_day",
     });
   } else if (cap.overcommitted && cap.demandMinutes > cap.capacityMinutes) {
     findings.push({

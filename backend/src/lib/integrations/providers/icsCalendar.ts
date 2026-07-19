@@ -20,13 +20,13 @@ function parseIcs(text: string): {
   description?: string;
   recurrenceRule?: string;
 }[] {
-  const unfolded = text.replace(/\r\n[ \t]/g, ""); // RFC 5545 line unfolding
+  const unfolded = text.replaceAll(/\r\n[ \t]/g, ""); // RFC 5545 line unfolding
   const events: ReturnType<typeof parseIcs> = [];
   const blocks = unfolded.split("BEGIN:VEVENT").slice(1);
   for (const b of blocks) {
     const body = b.split("END:VEVENT")[0];
     const get = (key: string) => {
-      const m = body.match(new RegExp(`\\n${key}(?:;[^:]*)?:(.*)`));
+      const m = body.match(new RegExp(String.raw`\n${key}(?:;[^:]*)?:(.*)`));
       return m ? m[1].trim() : undefined;
     };
     const uid = get("UID") ?? Math.random().toString(36).slice(2);
@@ -89,7 +89,7 @@ export const icsCalendarProvider: IntegrationProvider = {
     let label = url;
     try {
       const u = new URL(url);
-      const file = u.pathname.split("/").filter(Boolean).pop();
+      const file = u.pathname.split("/").findLast(Boolean);
       label = file ? `${u.hostname} · ${decodeURIComponent(file)}` : u.hostname;
     } catch {
       /* keep the raw url */

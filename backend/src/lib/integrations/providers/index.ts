@@ -19,6 +19,6 @@ export function registerAllProviders(): void {
   register(icsCalendarProvider);
   register(googleTasksProvider);
   register(tickTickProvider);
-  comingSoonProviders.forEach(register);
+  for (const p of comingSoonProviders) register(p);
   done = true;
 }

@@ -121,7 +121,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isMobile = !screens.md;
 
   const navDrawerOpen = useUI((s) => s.navDrawerOpen);
-  const taskDrawerOpen = useUI((s) => s.taskDrawerOpen);
   const closeTaskDrawer = useUI((s) => s.closeTaskDrawer);
   const setNavDrawer = useUI((s) => s.setNavDrawer);
   const openCreateTask = useUI((s) => s.openCreateTask);

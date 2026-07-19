@@ -15,7 +15,7 @@
  */
 
 import { z } from "zod";
-import type { BlockType } from "./schema/blocks";
+
 
 export type IntegrationCategory = "calendar" | "tasks" | "notes";
 export type AuthType = "oauth2" | "token" | "apikey";
@@ -137,4 +137,6 @@ export function manifestOf(p: IntegrationProvider): IntegrationManifest {
   };
 }
 
-export type { BlockType };
+
+
+export {type BlockType} from "./schema/blocks";

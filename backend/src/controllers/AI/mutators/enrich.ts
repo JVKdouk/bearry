@@ -39,7 +39,7 @@ const enrich: Endpoint = async (request) => {
           { estimatedDuration: 30, category: null }),
     },
     orderBy: { createdAt: "desc" },
-    take: todoIds?.length ? todoIds.length : limit,
+    take: todoIds?.length || limit,
   });
 
   if (rows.length === 0) {

@@ -93,7 +93,7 @@ export function mapProjectItems(project: TTProject, items: TTTask[]): unknown[] 
       title,
       notes: body || undefined,
       due: isoOrUndefined(t.dueDate),
-      priority: t.priority != null ? PRIORITY[t.priority] : undefined,
+      priority: t.priority == null ? undefined : PRIORITY[t.priority],
       status: t.status === 2 ? "done" : "todo",
       recurrenceRule: repeatRuleOrUndefined(t.repeatFlag),
     });

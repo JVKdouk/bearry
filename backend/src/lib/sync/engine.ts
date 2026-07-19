@@ -80,7 +80,7 @@ export async function pull(
       // every row sharing that millisecond, because the next pull asks for
       // `updatedAt > cursor` and would step straight over them.
       const page = rows.slice(0, PAGE_LIMIT);
-      const boundary = page[page.length - 1].updatedAt.getTime();
+      const boundary = page.at(-1).updatedAt.getTime();
       let cut = page.length;
       while (cut > 0 && page[cut - 1].updatedAt.getTime() === boundary) cut -= 1;
 
@@ -88,7 +88,7 @@ export async function pull(
       // return nothing and loop forever, so keep the page and accept that the
       // next pull may re-send those rows (the merge is idempotent).
       const kept = cut === 0 ? page : page.slice(0, cut);
-      const nextCursor = kept[kept.length - 1].updatedAt;
+      const nextCursor = kept.at(-1).updatedAt;
       return { entity: s.entity, model: s.model, rows: kept, nextCursor };
     }),
   );

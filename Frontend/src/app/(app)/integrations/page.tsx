@@ -348,7 +348,7 @@ export default function IntegrationsPage() {
                               style={{ display: "flex", flexDirection: "column", gap: 4 }}
                               defaultValue={c.selectedGroups ?? c.groups.map((g) => g.id)}
                               options={c.groups.map((g) => ({ label: g.label, value: g.id }))}
-                              onChange={(vals) => saveGroups(c, vals as string[])}
+                              onChange={(vals) => saveGroups(c, vals)}
                             />
                           </div>
                         )}

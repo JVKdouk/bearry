@@ -1,0 +1,76 @@
+# The gates that were previously only enforceable by remembering to run them.
+#
+# Node is pinned to 20 to match production. This is not incidental: a dependency
+# that builds on the dev machine's Node 24 and crashes on the server's 20.17 has
+# already caused one production outage here (undici's markAsUncloneable). CI
+# running the deployment's own major version is what turns that into a failed
+# build instead of a 502.
+name: CI
+
+on:
+  push:
+    branches: [master, polishing]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: backend/yarn.lock
+
+      - name: Install
+        working-directory: backend
+        run: yarn install --frozen-lockfile
+
+      - name: Generate Prisma client
+        working-directory: backend
+        run: yarn prisma generate
+
+      - name: Typecheck
+        working-directory: backend
+        run: npx tsc --noEmit -p .
+
+      - name: Lint
+        working-directory: backend
+        run: npx eslint ./src ./core ./tests
+
+      # Runs from the backend but reads the frontend copy of the RRULE engine,
+      # so the checkout must include both. Guards the one duplicated file.
+      - name: Test
+        working-directory: backend
+        run: yarn test
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: Frontend/package-lock.json
+
+      - name: Install
+        working-directory: Frontend
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: Frontend
+        run: npx tsc --noEmit
+
+      - name: Lint
+        working-directory: Frontend
+        run: npx eslint .
+
+      - name: Test
+        working-directory: Frontend
+        run: npm test
+
+      - name: Build
+        working-directory: Frontend
+        run: npm run build

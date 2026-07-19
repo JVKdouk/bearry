@@ -35,7 +35,6 @@ import { useSync } from "@/store/sync";
 import { useIsOffline } from "@/store/network";
 import { useCollection, useRecord } from "@/store/hooks";
 import { LIFE_AREAS, PRIORITY_COLOR, durationLabel } from "@/lib/format";
-import { describeRepeat } from "@/lib/recurrence";
 import { SchedulePopover, type ScheduleValue } from "@/components/SchedulePopover";
 import { SURFACE } from "@/lib/theme";
 import type { Priority, Todo } from "@/lib/types";
@@ -311,7 +310,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   }
 
   const done = v.status === "done";
-  const priority = (v.priority ?? "medium") as Priority;
+  const priority = (v.priority ?? "medium");
   const canCreate = !!(draft.title ?? "").trim();
 
   /**
@@ -368,7 +367,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       content={
         <Segmented
           value={priority}
-          onChange={(val) => patch({ priority: val as Priority })}
+          onChange={(val) => patch({ priority: val })}
           options={PRIORITY_OPTS}
         />
       }

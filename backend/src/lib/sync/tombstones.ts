@@ -19,7 +19,6 @@
  * construction because a full pull returns only live rows.
  */
 
-import database from "@/core/database";
 import { SYNCABLES } from "./registry";
 
 /**
@@ -97,6 +96,9 @@ export function startTombstoneSweep(): void {
   // Not at boot: a deploy restarting several instances would run this
   // concurrently on all of them. A few minutes in, staggered by startup jitter,
   // is enough to avoid the thundering herd.
-  setTimeout(run, 5 * 60_000 + Math.random() * 60_000).unref();
-  setInterval(run, SWEEP_INTERVAL_MS).unref();
+  // `void run()` rather than passing the async function directly: a timer
+  // callback that returns a promise leaves any rejection unhandled, and `run`
+  // is the one place that must never take the process down.
+  setTimeout(() => void run(), 5 * 60_000 + Math.random() * 60_000).unref();
+  setInterval(() => void run(), SWEEP_INTERVAL_MS).unref();
 }

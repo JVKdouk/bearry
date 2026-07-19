@@ -90,7 +90,7 @@ export function validateBlocks(raw: unknown[]): {
 } {
   const valid: CanonicalBlock[] = [];
   const errors: BlockValidationError[] = [];
-  raw.forEach((item, index) => {
+  for (const [index, item] of raw.entries()) {
     const parsed = CanonicalBlockSchema.safeParse(item);
     if (parsed.success) {
       valid.push(parsed.data);
@@ -101,7 +101,7 @@ export function validateBlocks(raw: unknown[]): {
           : undefined;
       errors.push({ index, sourceId, message: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") });
     }
-  });
+  }
   return { valid, errors };
 }
 

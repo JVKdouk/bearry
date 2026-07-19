@@ -53,7 +53,7 @@ const acceptCapture: Endpoint = async (request) => {
   const item = crypto.decrypt("CaptureItem", row as Record<string, unknown>);
   const fields = item.extractedFields ? JSON.parse(String(item.extractedFields)) : {};
   const type = body.type ?? (item.proposedType as string);
-  const projectId = body.projectId !== undefined ? body.projectId : (item.suggestedProjectId as string | null);
+  const projectId = body.projectId === undefined ? (item.suggestedProjectId as string | null) : body.projectId;
   const title = String(fields.title ?? item.rawContent).slice(0, 200);
 
   const chosenDate = resolveOverride(body.date, fields.date as string | undefined);
@@ -65,7 +65,8 @@ const acceptCapture: Endpoint = async (request) => {
   let createdType = type;
   let createdId: string | null = null;
 
-  if (type === "task") {
+  switch (type) {
+  case "task": {
     const todo = await database.todo.create({
       data: crypto.encrypt("Todo", {
         userId: request.user.id,
@@ -78,7 +79,10 @@ const acceptCapture: Endpoint = async (request) => {
       select: { id: true },
     });
     createdId = todo.id;
-  } else if (type === "event") {
+  
+  break;
+  }
+  case "event": {
     const start = chosenDate ? new Date(chosenDate) : new Date();
     // An explicit start override invalidates the extracted end, which was
     // derived from the old one — fall back to the duration instead.
@@ -98,7 +102,10 @@ const acceptCapture: Endpoint = async (request) => {
       select: { id: true },
     });
     createdId = event.id;
-  } else if (type === "note") {
+  
+  break;
+  }
+  case "note": {
     const note = await database.note.create({
       data: crypto.encrypt("Note", {
         userId: request.user.id,
@@ -108,9 +115,13 @@ const acceptCapture: Endpoint = async (request) => {
       select: { id: true },
     });
     createdId = note.id;
-  } else {
+  
+  break;
+  }
+  default: {
     // trash: nothing to materialize, just close the item out.
     createdType = "trash";
+  }
   }
 
   // Link the new entity back to its capture so provenance is visible (§8.7).

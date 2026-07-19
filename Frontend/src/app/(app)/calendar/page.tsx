@@ -40,7 +40,6 @@ import {
   releaseOutcome,
   shouldClaim,
   trackOffset,
-  type ScaleView,
 } from "@/lib/swipe";
 import type { Diagnosis, FindingAction, ScheduledBlock, ScheduleProposal } from "@/lib/types";
 
@@ -543,7 +542,7 @@ function CalendarInner() {
     const p = pinchRef.current;
     if (p && e.touches.length === 2) {
       const dist = pinchDistance(touchPoint(e.touches[0]), touchPoint(e.touches[1]));
-      const next = pinchView(p.from as ScaleView, p.startDist, dist);
+      const next = pinchView(p.from, p.startDist, dist);
       if (next !== view) {
         setView(next);
         // Re-baseline so a continuing pinch can step another level rather than
@@ -1258,8 +1257,8 @@ function CalendarInner() {
           {days.map((day) => {
             const isToday = day.isSame(now, "day");
             const dragActive = drag && drag.day.isSame(day, "day");
-            const lo = dragActive ? Math.min(drag!.startMin, drag!.curMin) : 0;
-            const hi = dragActive ? Math.max(drag!.startMin, drag!.curMin) : 0;
+            const lo = dragActive ? Math.min(drag.startMin, drag.curMin) : 0;
+            const hi = dragActive ? Math.max(drag.startMin, drag.curMin) : 0;
             const dayBlocks = blocksForDay(day);
             const dayLayout = layoutDay(dayBlocks);
             // Vertical spans already taken by a block, so a region label can

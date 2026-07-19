@@ -41,7 +41,7 @@ export async function runDigests(range: DigestRange): Promise<RunResult> {
       ...(cursor ? { skip: 1, cursor: { userId_key: { userId: cursor, key } } } : {}),
     });
     if (page.length === 0) break;
-    cursor = page[page.length - 1].userId;
+    cursor = page.at(-1).userId;
     attempted += page.length;
 
     for (let i = 0; i < page.length; i += CONCURRENCY) {
@@ -49,15 +49,15 @@ export async function runDigests(range: DigestRange): Promise<RunResult> {
       const outcomes = await Promise.allSettled(
         slice.map(({ userId }) => sendOne(userId, actor, range, subject)),
       );
-      outcomes.forEach((o, idx) => {
+      for (const [idx, o] of outcomes.entries()) {
         if (o.status === "fulfilled") {
           if (o.value) sent += 1;
-          return;
+          continue;
         }
         failed += 1;
         // One user's failure must never abort the run, but it must be visible.
         console.error(`Digest email failed for ${slice[idx].userId}`, o.reason);
-      });
+      }
     }
 
     if (page.length < PAGE_SIZE) break;

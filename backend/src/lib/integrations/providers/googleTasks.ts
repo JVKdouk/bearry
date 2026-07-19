@@ -154,7 +154,8 @@ export const googleTasksProvider: IntegrationProvider = {
       let groups: { id: string; label: string }[] = [];
       try {
         const accessToken = await accessTokenFromRefresh(tokens.refresh_token);
-        groups = (await listTaskLists(accessToken)).map((l) => ({
+        const lists = await listTaskLists(accessToken);
+        groups = lists.map((l) => ({
           id: l.id,
           label: (l.title ?? "").trim() || "Untitled list",
         }));

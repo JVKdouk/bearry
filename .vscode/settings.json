@@ -1,0 +1,36 @@
+{
+  // Formatting and lint fixes happen on save so review diffs contain changes in
+  // behaviour rather than changes in whitespace.
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+
+  // Both projects have their own flat ESLint config; point the extension at
+  // each so a file is linted with the rules that actually govern it.
+  "eslint.workingDirectories": [
+    { "directory": "backend", "changeProcessCWD": true },
+    { "directory": "Frontend", "changeProcessCWD": true }
+  ],
+  "eslint.useFlatConfig": true,
+
+  // Use each project's own TypeScript rather than the one bundled with the
+  // editor, so the editor and CI agree about what compiles.
+  "typescript.tsdk": "Frontend/node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+
+  // Auto-imports as project-relative paths, matching the "@/" aliases in use.
+  "typescript.preferences.importModuleSpecifier": "non-relative",
+
+  "files.eol": "\n",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.next": true,
+    "**/dist": true,
+    "**/.generated": true
+  }
+}

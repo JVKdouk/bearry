@@ -112,4 +112,6 @@ export function constantTimeEqual(a: Buffer, b: Buffer): boolean {
   return timingSafeEqual(a, b);
 }
 
-export { KEY_BYTES, NONCE_BYTES, TAG_BYTES, randomBytes };
+export { KEY_BYTES, NONCE_BYTES, TAG_BYTES,  };
+
+export {randomBytes} from "node:crypto";

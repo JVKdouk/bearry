@@ -125,7 +125,7 @@ export const googleCalendarProvider: IntegrationProvider = {
     const accessToken = await accessTokenFromRefresh(refreshToken);
     ctx.log("fetching Google Calendar events");
     const events = await listEvents(accessToken);
-    const blocks = events.map(toEventBlock).filter((b): b is EventBlock => b !== null);
+    const blocks = events.map((e) => toEventBlock(e)).filter((b): b is EventBlock => b !== null);
     ctx.log(`fetched ${blocks.length} events`);
     return { blocks, cursor: null };
   },

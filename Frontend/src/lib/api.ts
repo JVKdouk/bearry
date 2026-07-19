@@ -104,7 +104,7 @@ async function request<T>(
   if (!res.ok) {
     const fromBody =
       data && typeof data === "object" && "message" in data
-        ? String((data as { message: unknown }).message)
+        ? String((data).message)
         : null;
     // HTTP/2 has no status text, so res.statusText is often "" — never surface
     // an empty error to the user; fall back to the status code.

@@ -373,7 +373,7 @@ export const useSync = create<SyncState>((set, get) => {
         op: "upsert",
         id,
         clientUpdatedAt: now,
-        data: data as Record<string, unknown>,
+        data: data,
       });
       scheduleFlush();
       return id;

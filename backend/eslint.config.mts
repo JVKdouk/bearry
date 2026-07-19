@@ -7,16 +7,13 @@ import tseslint from "typescript-eslint";
 import eslintPluginUnicorn from "eslint-plugin-unicorn";
 
 export default defineConfig([
-  globalIgnores([
-    "node_modules/",
-    "dist/",
-    ".generated/",
-    ".dagger/",
-    "tests/",
-  ]),
+  globalIgnores(["node_modules/", "dist/", ".generated/", ".dagger/"]),
   {
-    ignores: ["node_modules/", "dist/", ".generated/", ".dagger/", "tests/"],
-    files: ["src/**/*.ts", "core/**/*.ts"],
+    ignores: ["node_modules/", "dist/", ".generated/", ".dagger/"],
+    // Tests are included deliberately: they were excluded from both linting and
+    // typechecking, which is how a test helper drifted out of sync with the
+    // type it was constructing and nothing noticed.
+    files: ["src/**/*.ts", "core/**/*.ts", "tests/**/*.ts"],
     plugins: { js, prettier, unicorn: eslintPluginUnicorn },
     extends: ["js/recommended"],
     languageOptions: {
@@ -62,6 +59,20 @@ export default defineConfig([
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
+    },
+  },
+  {
+    // Tests construct deliberately-malformed input and name files after what
+    // they cover, so the naming and strictness rules that protect application
+    // code only generate noise here.
+    files: ["tests/**/*.ts"],
+    rules: {
+      "unicorn/filename-case": "off",
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-non-null-assertion": "off",
+      "unicorn/no-useless-undefined": "off",
+      // node:test's `test()` returns a promise the runner already owns.
+      "@typescript-eslint/no-floating-promises": "off",
     },
   },
 ]);

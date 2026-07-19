@@ -272,7 +272,7 @@ function TimelineView({ todos }: { todos: Todo[] }) {
     const dayIdx = when.diff(start, "day");
     if (dayIdx < 0 || dayIdx >= TL_DAYS) return null;
     const timed = !!t.startTime && !!t.endTime;
-    const span = timed ? Math.max(1, Math.ceil(dayjs(t.endTime!).diff(when, "hour") / 24)) : 1;
+    const span = timed ? Math.max(1, Math.ceil(dayjs(t.endTime).diff(when, "hour") / 24)) : 1;
     return (
       <div
         onClick={() => openEditTask(t.id)}

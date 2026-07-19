@@ -30,28 +30,52 @@ function jsonResponse(body: unknown) {
     status: 200,
     statusText: "OK",
     headers: new Map(),
-    text: async () => JSON.stringify(body),
+    text: () => Promise.resolve(JSON.stringify(body)),
   } as unknown as Response;
 }
 
-globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+/**
+ * Narrow fetch's very wide argument types to what api.ts actually sends: a URL
+ * string and a JSON string body. Blindly `String()`-ing a Request object or a
+ * FormData would silently produce "[object Object]" and the mock would match no
+ * route while looking like it worked.
+ */
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === "string") return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
+function jsonBodyOf(init?: RequestInit): unknown {
+  if (typeof init?.body !== "string") return undefined;
+  return JSON.parse(init.body);
+}
+
+globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   if (!networkUp) throw new TypeError("Failed to fetch");
-  const url = String(input);
-  const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+  const url = urlOf(input);
+  const body = jsonBodyOf(init);
   calls.push({ url, method: init?.method ?? "GET", body });
 
   if (url.includes("/sync/push")) {
     const ops = (body as { ops: { entity: string; id?: string }[] }).ops;
-    return jsonResponse({
-      results: ops.map((o) => ({ entity: o.entity, id: o.id ?? "srv", status: "applied", version: 1 })),
-    });
+    return Promise.resolve(
+      jsonResponse({
+        results: ops.map((o) => ({
+          entity: o.entity,
+          id: o.id ?? "srv",
+          status: "applied",
+          version: 1,
+        })),
+      }),
+    );
   }
   if (url.includes("/sync/pull")) {
-    return jsonResponse({ cursor: new Date().toISOString(), changes: {}, hasMore: false });
+    return Promise.resolve(jsonResponse({ cursor: new Date().toISOString(), changes: {}, hasMore: false }));
   }
-  if (url.includes("/capture/")) return jsonResponse({ id: "c1" });
-  return jsonResponse({});
-}) as typeof fetch;
+  if (url.includes("/capture/")) return Promise.resolve(jsonResponse({ id: "c1" }));
+  return Promise.resolve(jsonResponse({}));
+});
 
 function goOffline() {
   networkUp = false;
