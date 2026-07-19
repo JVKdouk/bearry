@@ -1,0 +1,204 @@
+/// ─────────────────────────────────────────────────────────────────────────
+/// Content domain (§7). Fields whose name/comment marks them *(enc)* store a
+/// base64 packed sealed value (§5.8); everything else is cleartext structural
+/// metadata the scheduler and filters query. Every syncable row carries
+/// `updatedAt` + `version` + `deletedAt` for delta sync (§ Phase 2, item 8).
+/// ─────────────────────────────────────────────────────────────────────────
+
+enum Priority {
+  ASAP
+  high
+  medium
+  low
+}
+
+enum EnergyLevel {
+  high
+  medium
+  low
+}
+
+/// How much the user actually WANTS to do a task — orthogonal to how demanding
+/// it is. A 20-minute phone call can be low-energy and still dreaded, and that
+/// dread is what actually decides whether it happens. The scheduler treats
+/// `avoided` work as the thing to protect: placed early, kept short, never
+/// stacked, and capped per day.
+enum Desire {
+  wanted
+  neutral
+  avoided
+}
+
+enum TodoStatus {
+  todo
+  in_progress
+  done
+}
+
+/// Groups todos. `name` is encrypted; color/order/archived are cleartext.
+model Project {
+  id       String  @id @default(cuid())
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name     String  /// (enc)
+  color    String  @default("#832062")
+  order    Float   @default(0)
+  archived Boolean @default(false)
+
+  todos Todo[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
+  @@index([userId, updatedAt])
+  @@map("projects")
+}
+
+/// Nested (self-referential) todo. `title`/`notes` are encrypted; everything the
+/// scheduler needs (duration, deadline, priority, energyDemand, chunking,
+/// recurrence) is cleartext metadata (§5.2, §7.3).
+model Todo {
+  id           String  @id @default(cuid())
+  userId       String
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId    String?
+  project      Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  /// Self-referential nesting (§7.2). UI caps depth ~4–5.
+  parentTodoId String?
+  parent       Todo?   @relation("TodoTree", fields: [parentTodoId], references: [id], onDelete: Cascade)
+  children     Todo[]  @relation("TodoTree")
+
+  title String  /// (enc)
+  notes String? /// (enc) markdown
+
+  status   TodoStatus @default(todo)
+  priority Priority   @default(medium)
+  deadline DateTime?
+
+  /// A task with a start+end is a *timed* item — an "event". There's no separate
+  /// event model: the frontend renders a todo with startTime/endTime as a
+  /// calendar block, and the scheduler treats it as an immovable commitment.
+  /// Cleartext metadata (like start/end on external events) so busy-time queries
+  /// and the solver run without a decryption round-trip.
+  startTime DateTime?
+  endTime   DateTime?
+
+  /// Life area for time blocking (§8.4). Matched against BlockRegion.category so
+  /// the scheduler places this task in matching regions. Cleartext metadata.
+  category LifeArea?
+
+  /// minutes; optional with a gentle default so a task is never blocked on an
+  /// estimate (§7.3).
+  estimatedDuration Int     @default(30)
+  energyDemand      EnergyLevel @default(medium)
+  /// How much you want to do this (vs. how hard it is). Cleartext metadata.
+  desire            Desire      @default(neutral)
+  chunkable         Boolean @default(false)
+  minChunk          Int?    /// minutes
+  maxChunk          Int?    /// minutes
+  recurrenceRule    String? /// RFC 5545 RRULE
+
+  /// "mornings only" style hints, JSON-encoded window descriptors (cleartext).
+  preferredWindows  String?
+
+  /// Timestamp a stale task was gently let go without guilt (§1.4 p2). Recoverable.
+  letGoAt DateTime?
+
+  order Float @default(0)
+
+  steps TaskStep[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  @@index([projectId])
+  @@index([parentTodoId])
+  @@index([userId, status])
+  @@index([userId, deadline])
+  // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
+  @@index([userId, updatedAt])
+  @@map("todos")
+}
+
+/// Markdown note with bidirectional links (§8.7). Body + title encrypted.
+model Note {
+  id           String  @id @default(cuid())
+  userId       String
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title        String  /// (enc)
+  bodyMarkdown String  /// (enc)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
+  @@index([userId, updatedAt])
+  @@map("notes")
+}
+
+/// A break-it-down sub-step for task initiation (§8.11). `text` encrypted;
+/// `isFirstStep` marks the highlighted "start here" action.
+model TaskStep {
+  id          String  @id @default(cuid())
+  userId      String
+  todoId      String
+  todo        Todo    @relation(fields: [todoId], references: [id], onDelete: Cascade)
+  text        String  /// (enc)
+  order       Float   @default(0)
+  isFirstStep Boolean @default(false)
+  done        Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  @@index([todoId])
+  // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
+  @@index([userId, updatedAt])
+  @@map("task_steps")
+}
+
+enum LinkFromType {
+  todo
+  note
+  event
+  capture
+}
+
+enum LinkType {
+  reference
+  derived_from
+  blocks
+}
+
+/// Bidirectional link (§8.7). The *fact* of a link is low-sensitivity structural
+/// data (cleartext); the linked content stays encrypted on its own row.
+model Link {
+  id       String       @id @default(cuid())
+  userId   String
+  fromType LinkFromType
+  fromId   String
+  toType   LinkFromType
+  toId     String
+  linkType LinkType     @default(reference)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  @@index([fromType, fromId])
+  @@index([toType, toId])
+  // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
+  @@index([userId, updatedAt])
+  @@map("links")
+}

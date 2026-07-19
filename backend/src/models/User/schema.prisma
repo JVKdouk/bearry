@@ -1,0 +1,42 @@
+/// The account root. Holds the wrapped DEK (§5.1) and the password verifier —
+/// never plaintext of either. `email` and the verifier are cleartext (needed for
+/// login); everything sensitive the user owns lives on the rows below, encrypted
+/// under `wrappedDEK`.
+model User {
+  id         String  @id @default(cuid())
+  email      String  @unique
+  first_name String?
+  last_name  String?
+
+  /// scrypt verifier (stand-in for Argon2id, §4). One-way; never the password.
+  passwordVerifier String
+
+  /// Per-user DEK, ALWAYS stored wrapped by the root KEK (§5.1). A DB-only breach
+  /// yields this ciphertext with no key to open it.
+  wrappedDEK String
+  /// Bumped on each KEK rotation / break-glass re-wrap (§5.4).
+  dekVersion Int    @default(1)
+
+  created_at DateTime @default(now())
+
+  sessions Session[]
+  projects Project[]
+  todos    Todo[]
+  notes    Note[]
+
+  @@map("users")
+}
+
+/// Short-lived session (§5.3). The JWT carries only this id; the row is the
+/// revocable source of truth and gates the DEK's active-cache lifetime.
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expires_at DateTime
+  created_at DateTime @default(now())
+
+  @@index([userId])
+  @@index([expires_at])
+  @@map("sessions")
+}

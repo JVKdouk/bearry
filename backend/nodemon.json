@@ -1,0 +1,10 @@
+{
+  "verbose": false,
+  "ignore": ["node_modules/**/*"],
+  "execMap": {
+    "ts": "tsx"
+  },
+  "events": {
+    "start": "clear"
+  }
+}

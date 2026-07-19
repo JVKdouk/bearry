@@ -1,0 +1,41 @@
+/// ─────────────────────────────────────────────────────────────────────────
+/// Server-side bookkeeping (§5.4, §7.1). Not user content.
+/// ─────────────────────────────────────────────────────────────────────────
+
+enum AuditAction {
+  dek_unwrap
+  batch_decrypt
+}
+
+/// Append-only decrypt audit log (§5.4). Written on every DEK unwrap / batch
+/// decrypt and mirrored off-box, so mass exfiltration is visible even if the DB
+/// is later wiped. No update/delete path touches this table.
+model AuditLog {
+  id              String      @id @default(cuid())
+  userId          String
+  actorSessionId  String
+  action          AuditAction
+  recordCount     Int         @default(1)
+  requestContext  String?
+  createdAt       DateTime    @default(now())
+
+  @@index([userId])
+  @@index([actorSessionId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+/// Delta-sync bookkeeping (§ Phase 2, item 8). Encryption is per-field on the
+/// entity rows; this only tracks per-record versions for pull/push.
+model SyncRecord {
+  id         String   @id @default(cuid())
+  userId     String
+  entityType String
+  entityId   String
+  version    Int
+  updatedAt  DateTime @default(now())
+
+  @@unique([entityType, entityId])
+  @@index([userId, updatedAt])
+  @@map("sync_records")
+}

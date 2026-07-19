@@ -1,0 +1,180 @@
+/// ─────────────────────────────────────────────────────────────────────────
+/// Calendar, energy, and Google integration (§6, §7, §9). Titles/descriptions/
+/// locations and OAuth tokens are encrypted; start/end/isFixed and all scheduler
+/// config stay cleartext so busy-time queries and the solver run without a
+/// decryption round-trip (§5.2).
+/// ─────────────────────────────────────────────────────────────────────────
+
+enum EventSource {
+  google
+  bearai
+}
+
+/// A calendar event. Google events render as fixed/protected by default; BearAI
+/// blocks are the scheduler's output, tagged with `bearaiTaskId`.
+model CalendarEvent {
+  id          String      @id @default(cuid())
+  userId      String
+  source      EventSource
+  externalId  String?     /// Google event id (for idempotent two-way sync, §6.4)
+  title       String      /// (enc)
+  description String?     /// (enc)
+  location    String?     /// (enc)
+
+  start  DateTime
+  end    DateTime
+  /// Protected/immovable commitment (§9.3) — the scheduler must never move it.
+  isFixed Boolean @default(false)
+
+  /// RFC 5545 RRULE for imported repeating events, so a weekly stand-up comes
+  /// in as one recurring commitment rather than N copies. Cleartext metadata —
+  /// the solver reads it without a decryption round-trip (§9.7).
+  recurrenceRule String?
+
+  /// Set on BearAI-scheduled blocks: the todo this block is doing.
+  bearaiTaskId String?
+  /// The solver's plain-language reason for this placement (§9.6). Cleartext —
+  /// it's template-filled from the decision trace, not sensitive content.
+  scheduleReason String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  @@index([userId, start])
+  @@index([userId, source, externalId])
+  @@index([bearaiTaskId])
+  // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
+  @@index([userId, updatedAt])
+  @@map("calendar_events")
+}
+
+enum TimeBlockType {
+  focus
+  personal
+  buffer
+  busy
+}
+
+/// A drawn region on the calendar that constrains the scheduler (§8.4). Label
+/// encrypted; times/type cleartext.
+model TimeBlock {
+  id             String        @id @default(cuid())
+  userId         String
+  label          String?       /// (enc)
+  start          DateTime
+  end            DateTime
+  type           TimeBlockType @default(focus)
+  recurrenceRule String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  @@index([userId, start])
+  // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
+  @@index([userId, updatedAt])
+  @@map("time_blocks")
+}
+
+/// Life areas for time blocking (§8.4). A task's category is matched against a
+/// region's category so work tasks land in work blocks, etc. `sleep`/`meal` are
+/// treated as protected/off — the scheduler never places tasks there.
+enum LifeArea {
+  work
+  focus
+  personal
+  family
+  errand
+  sleep
+  meal
+  other
+}
+
+/// A recurring weekly time-blocking region (§8.4): "work Mon–Fri 09:00–17:00",
+/// "sleep every day 23:00–07:00", "family Sat 10:00–14:00". Tasks of a matching
+/// category are scheduled into these regions preferentially (but may extend out).
+/// Recurs by weekday mask + wall-clock like EnergyWindow; label encrypted.
+model BlockRegion {
+  id       String   @id @default(cuid())
+  userId   String
+  label    String?  /// (enc)
+  category LifeArea @default(work)
+  dayMask  Int      @default(127) /// bit 0 = Sunday … bit 6 = Saturday
+  start    String   /// "HH:MM" local
+  end      String   /// "HH:MM" local
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
+  @@index([userId, updatedAt])
+  @@map("block_regions")
+}
+
+/// Working-hours / schedule profile (§9.1). Low-sensitivity config — cleartext.
+/// `workingHours` is JSON: per-weekday [{start:"09:00",end:"17:00"}].
+model ScheduleProfile {
+  id             String  @id @default(cuid())
+  userId         String
+  name           String  @default("Default")
+  workingHours   String  /// JSON per-weekday windows
+  timezone       String  @default("UTC")
+  defaultBuffers Int     @default(0) /// minutes around location events
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  @@index([userId])
+  @@map("schedule_profiles")
+}
+
+enum EnergySource {
+  user
+  inferred
+}
+
+/// Energy-aware scheduling input (§9.4a). `dayMask` is a 7-bit weekday mask.
+/// Cleartext scheduler config.
+model EnergyWindow {
+  id          String       @id @default(cuid())
+  userId      String
+  dayMask     Int          @default(127) /// bit 0 = Sunday … bit 6 = Saturday
+  start       String       /// "HH:MM" local
+  end         String       /// "HH:MM" local
+  energyLevel EnergyLevel  @default(medium)
+  source      EnergySource @default(user)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
+  @@index([userId, updatedAt])
+  @@map("energy_windows")
+}
+
+/// The Google OAuth relationship (§6.2). Tokens encrypted under the user DEK —
+/// a DB-only breach yields an unusable token; `syncToken`/scopes cleartext.
+model GoogleAccount {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  encryptedRefreshToken String   /// (enc)
+  encryptedAccessToken  String?  /// (enc)
+  accessTokenExpiresAt  DateTime?
+  syncToken             String?
+  scopes                String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("google_accounts")
+}

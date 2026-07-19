@@ -1,0 +1,150 @@
+/**
+ * The deterministic scheduler (§9). Its whole selling point is that it is
+ * explainable and repeatable, which is exactly the kind of claim that rots
+ * silently without tests — including the capacity refactor that stopped
+ * rebuilding the slot grid twice.
+ */
+
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { solve } from "@/src/lib/scheduler/solver";
+import type { SchedulerInput, SchedulableTask } from "@/src/lib/scheduler/types";
+
+/** Mon 2026-07-20 09:00 local → Tue 09:00, with 09:00–17:00 working hours. */
+function baseInput(tasks: SchedulableTask[], overrides: Partial<SchedulerInput> = {}): SchedulerInput {
+  const horizonStart = new Date(2026, 6, 20, 9, 0, 0);
+  const horizonEnd = new Date(2026, 6, 21, 17, 0, 0);
+  return {
+    tasks,
+    busy: [],
+    workingHours: { "1": [{ start: "09:00", end: "17:00" }], "2": [{ start: "09:00", end: "17:00" }] },
+    energyWindows: [],
+    regions: [],
+    horizonStart,
+    horizonEnd,
+    ...overrides,
+  };
+}
+
+function task(id: string, min: number, extra: Partial<SchedulableTask> = {}): SchedulableTask {
+  return {
+    id,
+    estimatedDuration: min,
+    deadline: null,
+    priority: "medium",
+    energyDemand: "medium",
+    desire: "neutral",
+    category: null,
+    chunkable: false,
+    minChunk: null,
+    maxChunk: null,
+    createdAt: new Date(2026, 6, 1),
+    ...extra,
+  };
+}
+
+test("places a task inside working hours", () => {
+  const out = solve(baseInput([task("a", 60)]));
+  assert.equal(out.blocks.length, 1);
+  assert.equal(out.unscheduled.length, 0);
+  const start = out.blocks[0].start;
+  assert.ok(start.getHours() >= 9 && start.getHours() < 17, `started at ${start}`);
+});
+
+test("never double-books over a fixed commitment", () => {
+  const busyStart = new Date(2026, 6, 20, 9, 0);
+  const busyEnd = new Date(2026, 6, 20, 12, 0);
+  const out = solve(baseInput([task("a", 60)], { busy: [{ start: busyStart, end: busyEnd }] }));
+  const block = out.blocks[0];
+  assert.ok(
+    block.end <= busyStart || block.start >= busyEnd,
+    `block ${block.start}–${block.end} overlaps the busy interval`,
+  );
+});
+
+test("is deterministic — same input, same output", () => {
+  const tasks = [task("a", 60), task("b", 30, { priority: "high" }), task("c", 45)];
+  const first = solve(baseInput(tasks));
+  const second = solve(baseInput(tasks));
+  assert.deepEqual(
+    first.blocks.map((b) => [b.taskId, b.start.toISOString()]),
+    second.blocks.map((b) => [b.taskId, b.start.toISOString()]),
+  );
+});
+
+test("ASAP outranks everything else", () => {
+  const out = solve(baseInput([task("normal", 60), task("urgent", 60, { priority: "ASAP" })]));
+  assert.equal(out.blocks[0].taskId, "urgent");
+});
+
+test("an overdue deadline is scheduled before a distant one", () => {
+  const out = solve(
+    baseInput([
+      task("later", 60, { deadline: new Date(2026, 11, 1) }),
+      task("overdue", 60, { deadline: new Date(2026, 5, 1) }),
+    ]),
+  );
+  assert.equal(out.blocks[0].taskId, "overdue");
+});
+
+test("every block carries a human-readable reason", () => {
+  const out = solve(baseInput([task("a", 60)]));
+  assert.match(out.blocks[0].reason, /\w+/);
+  assert.ok(out.blocks[0].reason.length > 10);
+});
+
+test("a task too large for any slot is reported, not silently dropped", () => {
+  const out = solve(baseInput([task("huge", 10_000, { chunkable: false })]));
+  assert.equal(out.blocks.length, 0);
+  assert.equal(out.unscheduled.length, 1);
+  assert.equal(out.unscheduled[0].taskId, "huge");
+  assert.match(out.unscheduled[0].reason, /no open/i);
+});
+
+test("chunkable work is split into parts that are all placed", () => {
+  const out = solve(baseInput([task("big", 240, { chunkable: true, minChunk: 30, maxChunk: 60 })]));
+  assert.ok(out.blocks.length > 1, "expected multiple chunks");
+  assert.ok(out.blocks.every((b) => b.isChunk));
+  const total = out.blocks.reduce((s, b) => s + (b.end.getTime() - b.start.getTime()) / 60000, 0);
+  assert.equal(total, 240);
+});
+
+test("capacity reflects the horizon BEFORE placement", () => {
+  // Two 8h working days. Capacity must not shrink just because work was placed —
+  // this is the regression guard for computing it from the mutated slot grid.
+  const empty = solve(baseInput([]));
+  const full = solve(baseInput([task("a", 120), task("b", 120)]));
+  assert.equal(empty.capacity.capacityMinutes, full.capacity.capacityMinutes);
+  assert.equal(full.capacity.demandMinutes, 240);
+});
+
+test("overcommitment is flagged when demand exceeds capacity", () => {
+  const many = Array.from({ length: 40 }, (_, i) => task(`t${i}`, 120));
+  const out = solve(baseInput(many));
+  assert.equal(out.capacity.overcommitted, true);
+  assert.ok(out.capacity.atRiskTaskIds.length > 0);
+});
+
+test("protected regions (sleep/meal) are never scheduled over", () => {
+  // A meal region covering the entire working day leaves nothing placeable.
+  const out = solve(
+    baseInput([task("a", 60)], {
+      regions: [{ category: "meal", dayMask: 0b1111111, start: "00:00", end: "23:59" }],
+    }),
+  );
+  assert.equal(out.blocks.length, 0);
+  assert.equal(out.unscheduled.length, 1);
+});
+
+test("no two placed blocks ever overlap each other", () => {
+  const tasks = Array.from({ length: 8 }, (_, i) => task(`t${i}`, 45));
+  const out = solve(baseInput(tasks));
+  const sorted = [...out.blocks].sort((a, b) => a.start.getTime() - b.start.getTime());
+  for (let i = 1; i < sorted.length; i++) {
+    assert.ok(
+      sorted[i].start >= sorted[i - 1].end,
+      `block ${i} starts ${sorted[i].start} before previous ends ${sorted[i - 1].end}`,
+    );
+  }
+});

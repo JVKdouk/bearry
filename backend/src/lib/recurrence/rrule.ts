@@ -1,0 +1,291 @@
+/**
+ * A focused RFC 5545 RRULE engine (§7.5).
+ *
+ * Deliberately hand-written rather than pulling in a dependency. The rules this
+ * app actually needs — "every day", "every weekday", "every 2 weeks on Tue and
+ * Thu", "the 15th of each month", "annually" — are a small, well-defined subset,
+ * and a focused implementation is something we can test exhaustively and reason
+ * about. Recurrence bugs are the kind users notice a month later, so being able
+ * to see the whole rule in one file matters more than covering every exotic
+ * corner of the spec.
+ *
+ * The contract for anything outside that subset is the important part: parsing
+ * returns null and the caller treats the task as a one-off. A rule we don't
+ * fully understand must never silently generate *wrong* dates — a task that
+ * doesn't repeat is a visible annoyance; a task that repeats on the wrong days
+ * quietly corrupts a schedule.
+ */
+
+export type Freq = "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
+
+export interface Rule {
+  freq: Freq;
+  /** Every N periods. Defaults to 1. */
+  interval: number;
+  /** Weekday numbers (0 = Sunday … 6 = Saturday). WEEKLY only. */
+  byDay?: number[];
+  /** Day-of-month (1–31). MONTHLY/YEARLY only. */
+  byMonthDay?: number;
+  /** Month (1–12). YEARLY only. */
+  byMonth?: number;
+  /** Stop after this many occurrences (inclusive of the first). */
+  count?: number;
+  /** Stop at/after this instant. */
+  until?: Date;
+}
+
+const DAY_CODES: Record<string, number> = {
+  SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6,
+};
+const CODE_FOR_DAY = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+
+/** Parse an RRULE string. Returns null for anything unsupported or malformed. */
+export function parseRRule(raw: string | null | undefined): Rule | null {
+  if (!raw) return null;
+  // Accept both "RRULE:FREQ=..." and a bare "FREQ=..." body.
+  const body = raw.trim().replace(/^RRULE:/i, "");
+  if (!body) return null;
+
+  const parts = new Map<string, string>();
+  for (const seg of body.split(";")) {
+    const [k, v] = seg.split("=");
+    if (!k || v === undefined) return null; // malformed: refuse rather than guess
+    parts.set(k.trim().toUpperCase(), v.trim());
+  }
+
+  const freqRaw = (parts.get("FREQ") ?? "").toUpperCase();
+  if (!["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(freqRaw)) return null;
+  const freq = freqRaw as Freq;
+
+  const interval = parts.has("INTERVAL") ? Number(parts.get("INTERVAL")) : 1;
+  if (!Number.isFinite(interval) || interval < 1 || interval > 366) return null;
+
+  const rule: Rule = { freq, interval };
+
+  if (parts.has("BYDAY")) {
+    const codes = parts.get("BYDAY")!.split(",").map((c) => c.trim().toUpperCase());
+    const days: number[] = [];
+    for (const c of codes) {
+      // Positional forms ("2FR" = second Friday) are outside the subset — bail
+      // rather than silently treat it as "every Friday".
+      if (!(c in DAY_CODES)) return null;
+      days.push(DAY_CODES[c]);
+    }
+    if (days.length === 0) return null;
+    rule.byDay = [...new Set(days)].sort((a, b) => a - b);
+  }
+
+  if (parts.has("BYMONTHDAY")) {
+    const d = Number(parts.get("BYMONTHDAY"));
+    if (!Number.isInteger(d) || d < 1 || d > 31) return null; // negatives unsupported
+    rule.byMonthDay = d;
+  }
+
+  if (parts.has("BYMONTH")) {
+    const m = Number(parts.get("BYMONTH"));
+    if (!Number.isInteger(m) || m < 1 || m > 12) return null;
+    rule.byMonth = m;
+  }
+
+  if (parts.has("COUNT")) {
+    const n = Number(parts.get("COUNT"));
+    if (!Number.isInteger(n) || n < 1) return null;
+    rule.count = n;
+  }
+
+  if (parts.has("UNTIL")) {
+    const u = parseIcsDate(parts.get("UNTIL")!);
+    if (!u) return null;
+    rule.until = u;
+  }
+
+  // BYDAY only means something for weekly recurrence here; on other frequencies
+  // it changes the expansion in ways this subset doesn't implement.
+  if (rule.byDay && freq !== "WEEKLY") return null;
+
+  return rule;
+}
+
+/** Render a Rule back to an RRULE string (round-trips through parseRRule). */
+export function formatRRule(rule: Rule): string {
+  const parts: string[] = [`FREQ=${rule.freq}`];
+  if (rule.interval > 1) parts.push(`INTERVAL=${rule.interval}`);
+  if (rule.byDay?.length) parts.push(`BYDAY=${rule.byDay.map((d) => CODE_FOR_DAY[d]).join(",")}`);
+  if (rule.byMonthDay) parts.push(`BYMONTHDAY=${rule.byMonthDay}`);
+  if (rule.byMonth) parts.push(`BYMONTH=${rule.byMonth}`);
+  if (rule.count) parts.push(`COUNT=${rule.count}`);
+  if (rule.until) parts.push(`UNTIL=${toIcsDate(rule.until)}`);
+  return parts.join(";");
+}
+
+/** "YYYYMMDD" or "YYYYMMDDTHHMMSSZ" → Date. */
+function parseIcsDate(v: string): Date | null {
+  const m = v.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z?)?$/);
+  if (!m) return null;
+  const [, y, mo, d, h = "23", mi = "59", s = "59"] = m;
+  const date = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), Number(s));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toIcsDate(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}T${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+/** Copy `from`'s wall-clock time onto `day`. */
+function withTimeOf(day: Date, from: Date): Date {
+  const d = new Date(day);
+  d.setHours(from.getHours(), from.getMinutes(), from.getSeconds(), 0);
+  return d;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Whole days between two dates, ignoring time-of-day and DST shifts. */
+function daysBetween(a: Date, b: Date): number {
+  const ua = Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
+  const ub = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((ub - ua) / DAY_MS);
+}
+
+/**
+ * Occurrences of `rule` starting at `dtStart`, from `after` (exclusive) onward.
+ *
+ * Iterates candidates rather than computing closed-form dates: it's slower but
+ * it's obviously correct, and the hard limit keeps a pathological rule (say
+ * "every day until 2099" scanned over a decade) from spinning.
+ */
+export function occurrences(
+  rule: Rule,
+  dtStart: Date,
+  opts: { after?: Date; until?: Date; limit?: number } = {},
+): Date[] {
+  const limit = opts.limit ?? 50;
+  const after = opts.after ?? new Date(0);
+  const hardEnd = opts.until;
+  const out: Date[] = [];
+
+  // Guard against runaway iteration on sparse rules (e.g. yearly + BYMONTH).
+  const MAX_STEPS = 5000;
+  let emitted = 0; // counts toward COUNT, including ones before `after`
+
+  const push = (d: Date): "continue" | "stop" => {
+    if (rule.until && d > rule.until) return "stop";
+    emitted += 1;
+    if (rule.count && emitted > rule.count) return "stop";
+    if (d > after) {
+      if (hardEnd && d > hardEnd) return "stop";
+      out.push(d);
+      if (out.length >= limit) return "stop";
+    }
+    return "continue";
+  };
+
+  if (rule.freq === "DAILY") {
+    for (let i = 0, steps = 0; steps < MAX_STEPS; i += rule.interval, steps++) {
+      const d = withTimeOf(new Date(dtStart.getTime() + i * DAY_MS), dtStart);
+      if (push(d) === "stop") break;
+      if (hardEnd && d > hardEnd) break;
+    }
+    return out;
+  }
+
+  if (rule.freq === "WEEKLY") {
+    // Without BYDAY, repeat on dtStart's own weekday.
+    const days = rule.byDay?.length ? rule.byDay : [dtStart.getDay()];
+    // Anchor on the Sunday of dtStart's week so INTERVAL counts whole weeks.
+    const weekAnchor = new Date(dtStart);
+    weekAnchor.setDate(weekAnchor.getDate() - weekAnchor.getDay());
+    weekAnchor.setHours(0, 0, 0, 0);
+
+    outer: for (let w = 0, steps = 0; steps < MAX_STEPS; w += rule.interval, steps++) {
+      const weekStart = new Date(weekAnchor.getTime() + w * 7 * DAY_MS);
+      for (const dow of days) {
+        const d = withTimeOf(new Date(weekStart.getTime() + dow * DAY_MS), dtStart);
+        if (d < dtStart) continue; // days earlier in the first week
+        if (push(d) === "stop") break outer;
+      }
+      if (hardEnd && weekStart > hardEnd) break;
+    }
+    return out;
+  }
+
+  if (rule.freq === "MONTHLY") {
+    const dom = rule.byMonthDay ?? dtStart.getDate();
+    for (let m = 0, steps = 0; steps < MAX_STEPS; m += rule.interval, steps++) {
+      const base = new Date(dtStart.getFullYear(), dtStart.getMonth() + m, 1);
+      // A month without that day (Feb 30th) is skipped, per RFC 5545 — NOT
+      // clamped to the last day, which would invent an occurrence.
+      const daysInMonth = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+      if (dom > daysInMonth) {
+        if (hardEnd && base > hardEnd) break;
+        continue;
+      }
+      const d = withTimeOf(new Date(base.getFullYear(), base.getMonth(), dom), dtStart);
+      if (d >= dtStart && push(d) === "stop") break;
+      if (hardEnd && d > hardEnd) break;
+    }
+    return out;
+  }
+
+  // YEARLY
+  const month = (rule.byMonth ?? dtStart.getMonth() + 1) - 1;
+  const dom = rule.byMonthDay ?? dtStart.getDate();
+  for (let y = 0, steps = 0; steps < MAX_STEPS; y += rule.interval, steps++) {
+    const year = dtStart.getFullYear() + y;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    if (dom > daysInMonth) continue; // 29 Feb in a non-leap year
+    const d = withTimeOf(new Date(year, month, dom), dtStart);
+    if (d >= dtStart && push(d) === "stop") break;
+    if (hardEnd && d > hardEnd) break;
+  }
+  return out;
+}
+
+/** The next occurrence strictly after `after`, or null if the series has ended. */
+export function nextOccurrence(
+  rule: Rule,
+  dtStart: Date,
+  after: Date,
+): Date | null {
+  const [next] = occurrences(rule, dtStart, { after, limit: 1 });
+  return next ?? null;
+}
+
+/** Convenience: parse + next, for callers holding a raw rule string. */
+export function nextAfter(
+  raw: string | null | undefined,
+  dtStart: Date,
+  after: Date,
+): Date | null {
+  const rule = parseRRule(raw);
+  if (!rule) return null;
+  return nextOccurrence(rule, dtStart, after);
+}
+
+/** Human-readable summary for the UI ("Every 2 weeks on Mon, Wed"). */
+export function describeRRule(raw: string | null | undefined): string | null {
+  const rule = parseRRule(raw);
+  if (!rule) return null;
+  const n = rule.interval;
+  const every = (unit: string) => (n === 1 ? `Every ${unit}` : `Every ${n} ${unit}s`);
+
+  let text: string;
+  if (rule.freq === "DAILY") text = every("day");
+  else if (rule.freq === "WEEKLY") {
+    const names = (rule.byDay ?? []).map((d) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d]);
+    // "Every weekday" is how people actually say Mon–Fri.
+    const isWeekdays = names.length === 5 && !names.includes("Sat") && !names.includes("Sun");
+    text = isWeekdays && n === 1 ? "Every weekday" : every("week");
+    if (names.length && !(isWeekdays && n === 1)) text += ` on ${names.join(", ")}`;
+  } else if (rule.freq === "MONTHLY") {
+    text = every("month");
+    if (rule.byMonthDay) text += ` on day ${rule.byMonthDay}`;
+  } else {
+    text = every("year");
+  }
+
+  if (rule.count) text += `, ${rule.count} times`;
+  if (rule.until) text += `, until ${rule.until.toLocaleDateString()}`;
+  return text;
+}

@@ -1,0 +1,12 @@
+node_modules
+logs/*
+generated
+dist
+uploads/*
+
+.env
+.vscode
+
+.DS_Store
+
+.generated

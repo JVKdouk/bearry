@@ -1,0 +1,126 @@
+/// ─────────────────────────────────────────────────────────────────────────
+/// The ADHD "doing" layer (§8.11–8.16) + templates/reminders/time-tracking.
+/// Mostly low-sensitivity signals and config; the few content-bearing fields
+/// are encrypted.
+/// ─────────────────────────────────────────────────────────────────────────
+
+/// Backs focus mode / body-doubling and the gentle "you focused N times today"
+/// acknowledgment (§8.11). Low-sensitivity.
+model FocusSession {
+  id              String    @id @default(cuid())
+  userId          String
+  todoId          String?
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  plannedDuration Int?      /// minutes
+  completed       Boolean   @default(false)
+
+  updatedAt DateTime @updatedAt
+  version   Int      @default(1)
+
+  @@index([userId])
+  @@map("focus_sessions")
+}
+
+enum ReminderKind {
+  time
+  location
+  resurface
+}
+
+/// Externalized/location reminders and resurfacing (§8.14). Geofence coords are
+/// sensitive, so `triggerSpec` is encrypted.
+model Reminder {
+  id          String       @id @default(cuid())
+  userId      String
+  targetType  String
+  targetId    String
+  kind        ReminderKind @default(time)
+  triggerSpec String       /// (enc) JSON: time or geofence params
+  delivered   Boolean      @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  @@index([userId])
+  @@index([userId, delivered])
+  @@map("reminders")
+}
+
+/// Derived (not self-reported) signals that drive the overwhelm detector and the
+/// Just-One-Thing default (§8.13). Cleartext aggregate metrics, no content.
+model UserState {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  overdueCount         Int      @default(0)
+  recentRescheduleRate Float    @default(0)
+  daysSinceActive      Int      @default(0)
+  overwhelmScore       Float    @default(0)
+  updatedAt            DateTime @updatedAt
+
+  @@map("user_states")
+}
+
+/// Calm-mode, notification-quiet, momentum-on/off, initiation toggles (§8.16).
+/// Forgiving defaults mean an untouched Setting set still yields a good UX.
+model Setting {
+  id     String @id @default(cuid())
+  userId String
+  key    String
+  value  String
+
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  // Every other syncable carries a tombstone; without it the sync engine's
+  // delete path (which writes deletedAt) fails permanently for settings.
+  deletedAt DateTime?
+
+  @@unique([userId, key])
+  // Delta-sync hot path: WHERE userId = ? AND updatedAt > ? ORDER BY updatedAt.
+  @@index([userId, updatedAt])
+  @@map("settings")
+}
+
+enum TemplateKind {
+  project
+  day
+  routine
+}
+
+/// Reusable project/day/routine structures the scheduler instantiates (§8.8).
+/// Name + serialized payload encrypted.
+model Template {
+  id         String       @id @default(cuid())
+  userId     String
+  kind       TemplateKind
+  name       String       /// (enc)
+  payload    String       /// (enc) serialized tasks/blocks/durations
+  lastUsedAt DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  @@index([userId])
+  @@map("templates")
+}
+
+/// Optional, off-by-default estimate-vs-actual tracking (§8.9). Low-sensitivity
+/// metadata used only to refine future estimates — never billing.
+model TimeLog {
+  id                String   @id @default(cuid())
+  userId            String
+  todoId            String
+  estimatedDuration Int      /// minutes
+  actualDuration    Int      /// minutes
+  completedAt       DateTime @default(now())
+
+  version Int @default(1)
+
+  @@index([userId])
+  @@index([todoId])
+  @@map("time_logs")
+}

@@ -1,0 +1,29 @@
+/// Generic integration connection (§1.1 "provider-agnostic"). One row per
+/// user+provider+**account**, so the same provider can be connected several
+/// times (two Google accounts, several .ics feeds). The credential (OAuth
+/// refresh token / API key) is encrypted under the user DEK; `meta`/`syncToken`
+/// are cleartext bookkeeping. Any new provider reuses this table — no
+/// per-provider schema (see lib/integrations).
+model Integration {
+  id                  String    @id @default(cuid())
+  userId              String
+  providerId          String /// e.g. "google-calendar", "outlook", "todoist"
+  /// Stable identity of the connected account within the provider — the Google
+  /// account email, the .ics URL, etc. "default" for single-account providers
+  /// and for connections that pre-date multi-account support.
+  accountKey          String    @default("default")
+  label               String? /// human-friendly name shown in the UI
+  encryptedCredential String /// (enc) refresh token / api key
+  meta                String? /// JSON: scopes, account label, provider extras (cleartext)
+  status              String    @default("connected") /// connected | error | disconnected
+  syncToken           String?
+  lastSyncedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, providerId, accountKey])
+  @@index([userId])
+  @@index([userId, providerId])
+  @@map("integrations")
+}

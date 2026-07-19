@@ -1,0 +1,25 @@
+/// Maps an external plugin item (providerId + sourceId) to the platform entity
+/// it was ingested into, so re-imports UPDATE rather than duplicate. Generic
+/// across providers and block types — no per-entity externalId columns needed.
+model ImportedItem {
+  id         String   @id @default(cuid())
+  userId     String
+  providerId String
+  /// Which connected account this item came from. Part of the dedupe key so two
+  /// Google accounts invited to the SAME event (identical sourceId) each keep
+  /// their own mapping instead of overwriting one another.
+  accountKey String   @default("default")
+  sourceId   String /// the plugin's stable id for the item
+  blockType  String /// "event" | "task" | "note"
+  entityType String /// "CalendarEvent" | "Todo" | "Note"
+  entityId   String
+  /// Hash of the last-ingested block, to skip no-op updates.
+  contentHash String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, providerId, accountKey, sourceId])
+  @@index([userId, providerId])
+  @@index([entityType, entityId])
+  @@map("imported_items")
+}

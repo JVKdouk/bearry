@@ -1,0 +1,47 @@
+/// The capture inbox (§8.6) — the anti-friction heart of the app. Raw content
+/// and parsed fields are encrypted; the triage output shape (type, project,
+/// confidence, classifier version) is cleartext so the UI is identical whether
+/// an algorithm or AI produced it.
+
+enum CaptureSource {
+  share
+  email
+  voice
+  screenshot
+  manual
+}
+
+enum ProposedType {
+  task
+  note
+  event
+  trash
+}
+
+enum CaptureStatus {
+  pending
+  accepted
+  dismissed
+}
+
+model CaptureItem {
+  id                String        @id @default(cuid())
+  userId            String
+  rawContent        String        /// (enc) the captured text/url/transcript
+  source            CaptureSource @default(manual)
+  proposedType      ProposedType  @default(note)
+  suggestedProjectId String?
+  extractedFields   String?       /// (enc) JSON: {title,date,duration,…}
+  confidence        Float         @default(0)
+  classifierVersion String        @default("algo-v1")
+  status            CaptureStatus @default(pending)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  version   Int       @default(1)
+  deletedAt DateTime?
+
+  @@index([userId])
+  @@index([userId, status])
+  @@map("capture_items")
+}
