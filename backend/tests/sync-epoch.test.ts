@@ -36,12 +36,19 @@ test("an ancient cursor resets", () => {
   assert.equal(predatesSchemaEpoch(new Date("2020-01-01T00:00:00Z")), true);
 });
 
-test("the epoch is a fixed constant, not a boot time", () => {
+test("the epoch is a fixed, plausible constant", () => {
   // Two server instances that disagreed about this would flap clients between
-  // bootstrap and delta on every request.
+  // bootstrap and delta on every request, so it must be a literal.
   assert.ok(SCHEMA_EPOCH instanceof Date);
   assert.ok(Number.isFinite(SCHEMA_EPOCH.getTime()));
-  assert.ok(SCHEMA_EPOCH.getTime() < Date.now(), "epoch must already have passed");
+
+  // Bounded rather than "must already have passed": that version of this
+  // assertion failed the moment the epoch was set a few minutes ahead of the
+  // deploy, which is a legitimate thing to do. The bounds still catch the
+  // mistakes that matter — a 1970 epoch (resets nobody) or a 2030 one (resets
+  // everybody, forever).
+  assert.ok(SCHEMA_EPOCH > new Date("2026-01-01T00:00:00Z"), "epoch is implausibly old");
+  assert.ok(SCHEMA_EPOCH < new Date("2027-01-01T00:00:00Z"), "epoch is in the far future");
 });
 
 test("a custom epoch is respected, so a later break can move it", () => {

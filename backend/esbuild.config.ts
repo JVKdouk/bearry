@@ -4,7 +4,14 @@ import { globSync } from "glob";
 import { rmSync } from "node:fs";
 import pkg from './package.json';
 
-const allFiles = [...globSync("./src/**/*.ts"), './core/index.ts'];
+// scripts/ ships too: the re-seal pass has to run on the server, where the
+// production KEK lives. Running it from a laptop would mean copying the key
+// off the box, which is a worse trade than one extra bundle.
+const allFiles = [
+  ...globSync("./src/**/*.ts"),
+  ...globSync("./scripts/*.ts"),
+  './core/index.ts',
+];
 
 // Chunk names are content-hashed, so every build left its predecessors behind:
 // dist/ had accumulated several 5.6 MB orphans, and the deploy rsync (no

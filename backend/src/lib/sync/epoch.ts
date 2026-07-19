@@ -20,11 +20,20 @@
 /**
  * When the unified `blocks` entity replaced todo/calendarEvent/note.
  *
- * Any client whose cursor predates this is talking about a schema that no
- * longer exists. Later schema breaks should move this forward rather than
- * adding a second constant — one epoch, one meaning.
+ * This is the moment the migration actually completed in production, not the
+ * morning of that day. The distinction matters: a client that synced at 15:58
+ * and a client that synced at 17:54 hold completely different schemas, and an
+ * epoch set to midnight would have handed the first one a delta — leaving it
+ * with `todo` and `calendarEvent` rows the server will never mention again.
+ *
+ * A few minutes of slack past the migration, so a pull that raced it is also
+ * treated as untrustworthy. Being reset when you didn't need to be costs one
+ * bootstrap; not being reset when you did need to be is permanent.
+ *
+ * Later schema breaks should move this forward rather than adding a second
+ * constant — one epoch, one meaning.
  */
-export const SCHEMA_EPOCH = new Date("2026-07-19T00:00:00.000Z");
+export const SCHEMA_EPOCH = new Date("2026-07-19T18:00:00.000Z");
 
 /**
  * Does this cursor predate the current entity layout?
