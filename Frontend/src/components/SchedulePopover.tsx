@@ -19,7 +19,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { Button, Segmented, Select, TimePicker } from "antd";
+import { Button, Input, Segmented, Select, TimePicker } from "antd";
 import {
   CalendarOutlined,
   ClockCircleOutlined,
@@ -30,6 +30,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import { describeRepeat, repeatOptions } from "@/lib/recurrence";
 import { CustomRepeat } from "@/components/CustomRepeat";
 import { durationLabel } from "@/lib/format";
+import { clampMinutes, durationInputValue, parseDuration } from "@/lib/duration";
 
 const MUTED = "#a9a9b8";
 const FAINT = "#6f6f80";
@@ -131,6 +132,24 @@ function repeatChoices(date: Dayjs, current: string | null) {
 
 export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
   const [tab, setTab] = useState<"date" | "duration">("date");
+  /**
+   * What's being typed in the duration box, or null when it isn't being edited.
+   *
+   * Held separately so a half-typed "1h" isn't parsed as one hour on every
+   * keystroke — the value only commits on blur or Enter, and unparseable text
+   * is left alone rather than silently reverted while the cursor is still in
+   * the field.
+   */
+  const [draftDuration, setDraftDuration] = useState<string | null>(null);
+
+  function commitDuration() {
+    if (draftDuration === null) return;
+    const parsed = parseDuration(draftDuration);
+    // Unparseable input keeps the previous duration rather than resetting to a
+    // default: a typo should cost a correction, not the number you had.
+    if (parsed !== null) onChange({ duration: parsed });
+    setDraftDuration(null);
+  }
   const [editingRepeat, setEditingRepeat] = useState(false);
   const [month, setMonth] = useState<Dayjs>(value.date ?? startOfToday());
 
@@ -336,37 +355,40 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
             })}
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Typed, not just stepped. Reaching fifteen hours five minutes at a
+              time is 180 clicks, and the old ceiling of 600 minutes made it
+              impossible regardless. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Button
               size="small"
               aria-label="Five minutes shorter"
-              onClick={() => onChange({ duration: Math.max(5, value.duration - 5) })}
+              onClick={() => onChange({ duration: clampMinutes(value.duration - 5) })}
             >
               −
             </Button>
-            <span
-              style={{
-                flex: 1,
-                textAlign: "center",
-                fontSize: 15,
-                fontWeight: 600,
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {durationLabel(value.duration)}
-            </span>
+            <Input
+              size="small"
+              aria-label="Duration"
+              value={draftDuration ?? durationInputValue(value.duration)}
+              status={draftDuration !== null && parseDuration(draftDuration) === null ? "error" : undefined}
+              onChange={(e) => setDraftDuration(e.target.value)}
+              onBlur={commitDuration}
+              onPressEnter={commitDuration}
+              style={{ flex: 1, textAlign: "center", fontWeight: 600 }}
+            />
             <Button
               size="small"
               aria-label="Five minutes longer"
-              onClick={() => onChange({ duration: Math.min(600, value.duration + 5) })}
+              onClick={() => onChange({ duration: clampMinutes(value.duration + 5) })}
             >
               +
             </Button>
           </div>
 
           <p style={{ fontSize: 11.5, color: FAINT, marginTop: 12, marginBottom: 0 }}>
-            How long you expect this to take. The planner uses it to find a slot
-            that actually fits.
+            How long you expect this to take — type it however you like
+            (&quot;90&quot;, &quot;1h30&quot;, &quot;2h&quot;). The planner uses
+            it to find a slot that actually fits.
           </p>
         </div>
       )}

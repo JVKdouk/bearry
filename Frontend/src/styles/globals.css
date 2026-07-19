@@ -560,3 +560,26 @@ a {
   color: #9a9aae;
   opacity: 1;
 }
+
+/* The list settings gear stays out of the way until you go looking for it —
+   a permanently visible control on every row turns the sidebar into a column
+   of buttons rather than a list of lists. Focus reveals it too, so it isn't
+   keyboard-invisible. */
+.side-row-gear {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.side-row-wrap:hover .side-row-gear,
+.side-row-gear:focus-visible {
+  opacity: 1;
+}
+.side-row-gear:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8e8ef;
+}
+/* Touch has no hover, so there is nothing to reveal — always show it. */
+@media (hover: none) {
+  .side-row-gear {
+    opacity: 0.65;
+  }
+}

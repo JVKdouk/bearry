@@ -69,6 +69,11 @@ model Project {
   user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   name     String  /// (enc)
   color    String  @default("#832062")
+  /// A single emoji. Cleartext: it carries no content, and keeping it readable
+  /// is what lets the sidebar render a list without a decryption round-trip.
+  /// Emoji rather than a named icon set — it needs no mapping table, renders
+  /// everywhere, and the user isn't limited to what someone drew.
+  icon     String?
   order    Float   @default(0)
   archived Boolean @default(false)
 

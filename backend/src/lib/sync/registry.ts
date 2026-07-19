@@ -25,7 +25,7 @@ export const SYNCABLES: readonly SyncableEntity[] = [
     entity: "project",
     model: "Project",
     delegate: database.project,
-    writable: ["name", "color", "order", "archived"],
+    writable: ["name", "color", "icon", "order", "archived"],
   },
   {
     entity: "block",

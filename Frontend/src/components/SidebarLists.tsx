@@ -2,23 +2,19 @@
 
 import { useMemo, useState } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { App as AntdApp, Button, Input, Tooltip } from "antd";
+import { Button, Tooltip } from "antd";
 import {
   CheckCircleOutlined,
   InboxOutlined,
   PlusOutlined,
+  SettingOutlined,
   SunOutlined,
   UnorderedListOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useCollection } from "@/store/hooks";
-import { useSync } from "@/store/sync";
-
-// Palette used to auto-assign a color to newly created lists.
-const LIST_PALETTE = [
-  "#a855f7", "#4096ff", "#36cfc9", "#f759ab",
-  "#ffa940", "#73d13d", "#597ef7", "#ff7875",
-];
+import { ListDrawer } from "@/components/ListDrawer";
+import { iconFor } from "@/lib/lists";
 
 function Dot({ color }: { color: string }) {
   return (
@@ -41,14 +37,17 @@ function Row({
   label,
   count,
   onClick,
+  onSettings,
 }: {
   active: boolean;
   icon: React.ReactNode;
   label: React.ReactNode;
   count?: number;
   onClick: () => void;
+  /** Present only on rows that have settings — a gear that appears on hover. */
+  onSettings?: () => void;
 }) {
-  return (
+  const row = (
     <button
       onClick={onClick}
       className="side-row"
@@ -82,19 +81,56 @@ function Row({
       ) : null}
     </button>
   );
+
+  if (!onSettings) return row;
+
+  // The gear sits beside the row rather than inside it: a button inside a
+  // button is invalid markup, and the two clicks mean genuinely different
+  // things — open the list, versus change what the list is.
+  return (
+    <div className="side-row-wrap" style={{ position: "relative" }}>
+      {row}
+      <Tooltip title="List settings">
+        <button
+          aria-label={`Settings for ${typeof label === "string" ? label : "list"}`}
+          className="side-row-gear"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSettings();
+          }}
+          style={{
+            position: "absolute",
+            right: 6,
+            top: "50%",
+            transform: "translateY(-50%)",
+            border: "none",
+            background: "transparent",
+            color: "#8f8fa2",
+            cursor: "pointer",
+            padding: 4,
+            lineHeight: 1,
+            borderRadius: 6,
+          }}
+        >
+          <SettingOutlined style={{ fontSize: 12 }} />
+        </button>
+      </Tooltip>
+    </div>
+  );
 }
 
 export function SidebarLists({ onNavigate }: { onNavigate?: () => void }) {
-  const { message } = AntdApp.useApp();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const projects = useCollection("project");
   const blocks = useCollection("block");
-  const create = useSync((s) => s.create);
 
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
+  // Creating and editing both open the same drawer: a list you just made and a
+  // list you're fixing want the same controls, and two surfaces is how the two
+  // drift. `null` id means create.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const activeProjects = useMemo(
     () => projects.filter((p) => !p.archived).sort((a, b) => a.order - b.order),
@@ -129,23 +165,14 @@ export function SidebarLists({ onNavigate }: { onNavigate?: () => void }) {
     onNavigate?.();
   };
 
-  function addList() {
-    const n = name.trim();
-    if (!n) {
-      setAdding(false);
-      return;
-    }
-    const color = LIST_PALETTE[activeProjects.length % LIST_PALETTE.length];
-    const id = create("project", {
-      name: n,
-      color,
-      order: activeProjects.length,
-      archived: false,
-    });
-    setName("");
-    setAdding(false);
-    message.success("List created");
-    go(`/lists?list=${id}`);
+  function openCreate() {
+    setEditingId(null);
+    setDrawerOpen(true);
+  }
+
+  function openSettings(id: string) {
+    setEditingId(id);
+    setDrawerOpen(true);
   }
 
   return (
@@ -191,44 +218,47 @@ export function SidebarLists({ onNavigate }: { onNavigate?: () => void }) {
         <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.6, color: "#6f6f80", textTransform: "uppercase" }}>
           Lists
         </span>
-        <Tooltip title="New list">
-          <Button
-            type="text"
-            size="small"
-            icon={<PlusOutlined style={{ fontSize: 12, color: "#8f8fa2" }} />}
-            onClick={() => setAdding(true)}
-          />
-        </Tooltip>
+        <span style={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <Tooltip title="Manage lists">
+            <Button
+              type="text"
+              size="small"
+              aria-label="Manage lists"
+              icon={<SettingOutlined style={{ fontSize: 12, color: "#8f8fa2" }} />}
+              onClick={() => go("/lists/settings")}
+            />
+          </Tooltip>
+          <Tooltip title="New list">
+            <Button
+              type="text"
+              size="small"
+              aria-label="New list"
+              icon={<PlusOutlined style={{ fontSize: 12, color: "#8f8fa2" }} />}
+              onClick={openCreate}
+            />
+          </Tooltip>
+        </span>
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", padding: "0 6px 6px", display: "flex", flexDirection: "column", gap: 2 }}>
-        {activeProjects.map((p) => (
-          <Row
-            key={p.id}
-            active={onLists && selected === p.id}
-            icon={<Dot color={p.color} />}
-            label={p.name}
-            count={counts.byProject.get(p.id)}
-            onClick={() => go(`/lists?list=${p.id}`)}
-          />
-        ))}
+        {activeProjects.map((p) => {
+          const emoji = iconFor(p);
+          return (
+            <Row
+              key={p.id}
+              active={onLists && selected === p.id}
+              icon={emoji ? <span style={{ fontSize: 13 }}>{emoji}</span> : <Dot color={p.color} />}
+              label={p.name}
+              count={counts.byProject.get(p.id)}
+              onClick={() => go(`/lists?list=${p.id}`)}
+              onSettings={() => openSettings(p.id)}
+            />
+          );
+        })}
 
-        {adding && (
-          <Input
-            size="small"
-            autoFocus
-            placeholder="List name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onPressEnter={addList}
-            onBlur={addList}
-            style={{ margin: "4px 6px", width: "auto" }}
-          />
-        )}
-
-        {activeProjects.length === 0 && !adding && (
+        {activeProjects.length === 0 && (
           <button
-            onClick={() => setAdding(true)}
+            onClick={openCreate}
             style={{
               display: "flex",
               alignItems: "center",
@@ -247,6 +277,14 @@ export function SidebarLists({ onNavigate }: { onNavigate?: () => void }) {
           </button>
         )}
       </div>
+
+      <ListDrawer
+        open={drawerOpen}
+        projectId={editingId}
+        onClose={() => setDrawerOpen(false)}
+        isMobile={!!onNavigate}
+        onCreated={(id) => go(`/lists?list=${id}`)}
+      />
     </div>
   );
 }

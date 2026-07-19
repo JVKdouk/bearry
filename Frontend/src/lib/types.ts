@@ -27,6 +27,8 @@ export interface SyncBase {
 export interface Project extends SyncBase {
   name: string;
   color: string;
+  /** A single emoji, or null for the plain colour dot. */
+  icon?: string | null;
   order: number;
   archived: boolean;
 }
