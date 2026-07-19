@@ -36,6 +36,7 @@ import { useIsOffline } from "@/store/network";
 import { useCollection, useRecord } from "@/store/hooks";
 import { LIFE_AREAS, PRIORITY_COLOR, durationLabel } from "@/lib/format";
 import { SchedulePopover, type ScheduleValue } from "@/components/SchedulePopover";
+import { nextQuarterHour, taskToEvent, taskToNote } from "@/lib/convert";
 import { SURFACE } from "@/lib/theme";
 import type { Priority, Todo } from "@/lib/types";
 
@@ -302,6 +303,32 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
     setNewStep("");
   }
 
+  /**
+   * Turn this task into a note or a calendar event.
+   *
+   * Creates the replacement first and only then removes the original: the two
+   * writes are separate sync ops, and doing it the other way round means a
+   * failure between them loses the content outright.
+   *
+   * Steps don't survive — neither notes nor events have them. That's stated in
+   * the confirm rather than discovered afterwards.
+   */
+  function convertTo(target: "note" | "event") {
+    if (!editingId || !editing) return;
+
+    if (target === "note") {
+      create("note", taskToNote(editing));
+      message.success("Converted to a note");
+    } else {
+      create("calendarEvent", taskToEvent(editing, nextQuarterHour()));
+      message.success("Converted to an event");
+    }
+
+    for (const step of steps) remove("taskStep", step.id);
+    remove("todo", editingId);
+    closePanel();
+  }
+
   function confirmCreate() {
     const title = (draft.title ?? "").trim();
     if (!title) return;
@@ -529,6 +556,25 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
               options={LIFE_AREAS.map((a) => ({ label: a[0].toUpperCase() + a.slice(1), value: a }))}
             />
           </label>
+
+          {/* Converting is rare and destructive, so it lives at the bottom of
+              the overflow menu rather than beside the everyday controls. */}
+          {!isCreate && (
+            <div style={{ borderTop: "1px solid #2a2a33", paddingTop: 10 }}>
+              <div style={metaLabel}>Convert to</div>
+              <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                <Button size="small" style={{ flex: 1 }} onClick={() => convertTo("note")}>
+                  Note
+                </Button>
+                <Button size="small" style={{ flex: 1 }} onClick={() => convertTo("event")}>
+                  Event
+                </Button>
+              </div>
+              <div style={{ fontSize: 11, color: "#6f6f80", marginTop: 6, lineHeight: 1.45 }}>
+                {"A note isn't actionable. An event holds time and completes itself once it passes."}
+              </div>
+            </div>
+          )}
         </div>
       }
     >
@@ -648,16 +694,19 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
               </div>
             ))}
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Input
-                size="small"
-                variant="borderless"
-                placeholder="＋ Add a step"
-                value={newStep}
-                onChange={(e) => setNewStep(e.target.value)}
-                onPressEnter={addStep}
-                onBlur={addStep}
-                style={{ paddingInline: 0, marginTop: 2, flex: 1 }}
-              />
+              <div className="add-step-row" style={{ flex: 1, minWidth: 0 }}>
+                <PlusOutlined />
+                <Input
+                  size="small"
+                  variant="borderless"
+                  placeholder="Add a step"
+                  value={newStep}
+                  onChange={(e) => setNewStep(e.target.value)}
+                  onPressEnter={addStep}
+                  onBlur={addStep}
+                  style={{ paddingInline: 0, flex: 1 }}
+                />
+              </div>
               {steps.length === 0 && (
                 <Tooltip
                   title={

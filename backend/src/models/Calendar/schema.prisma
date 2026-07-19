@@ -31,6 +31,17 @@ model CalendarEvent {
   /// the solver reads it without a decryption round-trip (§9.7).
   recurrenceRule String?
 
+  /// Fields the user has edited by hand on an IMPORTED event, which the
+  /// importer must therefore stop overwriting. Comma-separated field names
+  /// ("title,description"); cleartext, since it names fields rather than
+  /// holding content.
+  ///
+  /// Without this, editing an imported event is a lie: the change saves, looks
+  /// applied, and is silently reverted on the next sync. Recording the intent
+  /// is what makes the edit real — the source calendar still owns everything
+  /// the user hasn't touched.
+  pinnedFields String?
+
   /// Set on BearAI-scheduled blocks: the todo this block is doing.
   bearaiTaskId String?
   /// The solver's plain-language reason for this placement (§9.6). Cleartext —

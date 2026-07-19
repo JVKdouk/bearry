@@ -141,7 +141,12 @@ export async function ingestBlocks(
       // issued a second, redundant update after the recreate had already
       // written entityId + contentHash.
       try {
-        await delegate.update({ where: { id: existing.entityId }, data: { ...data } });
+        // Fields the user edited by hand are theirs now — the importer stops
+        // overwriting them. Without this, editing an imported event is a lie:
+        // the change saves, looks applied, and silently reverts on the next
+        // sync. Everything untouched still tracks the source calendar.
+        const writable = await withoutPinnedFields(model, existing.entityId, data);
+        await delegate.update({ where: { id: existing.entityId }, data: writable });
         await database.importedItem.update({ where: { id: existing.id }, data: { contentHash: hash } });
       } catch {
         const recreated = await delegate.create({ data: { ...data, userId }, select: { id: true } });
@@ -170,6 +175,31 @@ export async function ingestBlocks(
   }
 
   return summary;
+}
+
+/**
+ * Drop any field the user has pinned on this entity.
+ *
+ * Only CalendarEvent carries pins today (it's the only entity you can edit and
+ * also have re-imported), so everything else short-circuits without a query.
+ */
+async function withoutPinnedFields(
+  model: string,
+  entityId: string,
+  data: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (model !== "CalendarEvent") return data;
+
+  const row = await database.calendarEvent.findUnique({
+    where: { id: entityId },
+    select: { pinnedFields: true },
+  });
+  const pinned = (row?.pinnedFields ?? "").split(",").map((f) => f.trim()).filter(Boolean);
+  if (pinned.length === 0) return data;
+
+  const out = { ...data };
+  for (const field of pinned) delete out[field];
+  return out;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -60,7 +60,14 @@ export const SYNCABLES: readonly SyncableEntity[] = [
     entity: "calendarEvent",
     model: "CalendarEvent",
     delegate: database.calendarEvent,
-    writable: ["source", "externalId", "title", "description", "location", "start", "end", "isFixed"],
+    // `pinnedFields` is client-writable on purpose: editing an imported
+    // event's title is the act that pins it, and the client is what knows the
+    // user did that. It names fields, never content, so a bad value can at
+    // worst stop the importer updating a field — never leak or corrupt one.
+    writable: [
+      "source", "externalId", "title", "description", "location",
+      "start", "end", "isFixed", "pinnedFields",
+    ],
   },
   {
     entity: "timeBlock",

@@ -85,6 +85,12 @@ export interface CalendarEventEntity extends SyncBase {
    * calendar and a local edit would be overwritten on the next sync.
    */
   recurrenceRule?: string | null;
+  /**
+   * Comma-separated field names the user has edited by hand on an IMPORTED
+   * event. The importer stops overwriting exactly these, so an edit sticks
+   * while everything untouched still follows the source calendar.
+   */
+  pinnedFields?: string | null;
 }
 
 export interface TimeBlock extends SyncBase {

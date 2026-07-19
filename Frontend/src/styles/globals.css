@@ -424,3 +424,39 @@ a {
     animation: none;
   }
 }
+
+/* The "add a step" row.
+ *
+ * It rendered as a borderless input sitting flush under the title, so its
+ * placeholder was dimmer than the notes placeholder right below it and the
+ * whole thing read as disabled chrome rather than an action — people reported
+ * it as missing. It now reads as a row you can click: an icon, a brighter
+ * label, and a hover state that confirms it's interactive. */
+.add-step-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 0 2px -6px;
+  padding: 3px 6px;
+  border-radius: 7px;
+  transition: background 0.12s ease;
+}
+.add-step-row:hover,
+.add-step-row:focus-within {
+  background: rgba(255, 255, 255, 0.045);
+}
+.add-step-row .anticon {
+  color: #8f8fa2;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.add-step-row:hover .anticon,
+.add-step-row:focus-within .anticon {
+  color: var(--accent, #e5893f);
+}
+/* Brighter than a normal placeholder: this one IS the label, not a hint about
+   what to type. */
+.add-step-row input::placeholder {
+  color: #9a9aae;
+  opacity: 1;
+}

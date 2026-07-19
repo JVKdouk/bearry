@@ -1383,11 +1383,20 @@ function CalendarInner() {
                           alignItems: compact || tinyBlocks ? "center" : "stretch",
                           gap: compact ? 6 : 0,
                           cursor: "pointer",
-                          // A generated occurrence is a preview of a repeat, not
-                          // something that exists yet — reading as slightly
-                          // lighter keeps it from being mistaken for a
-                          // separately-scheduled commitment.
-                          opacity: b.isRepeat ? 0.72 : 1,
+                          // Two kinds of fade, for two different meanings.
+                          // A generated occurrence is a preview of a repeat —
+                          // not something that exists yet. A past *event* has
+                          // simply happened: an event isn't something you
+                          // complete, so going by is the whole of its
+                          // lifecycle, and it should stop competing for
+                          // attention with what's still ahead. Past TASKS keep
+                          // full weight — those are still outstanding.
+                          opacity:
+                            b.kind === "event" && b.end.isBefore(now)
+                              ? 0.45
+                              : b.isRepeat
+                                ? 0.72
+                                : 1,
                         }}
                       >
                         {/* When only one of the two fits, show the NAME.
@@ -1541,6 +1550,7 @@ function CalendarInner() {
         eventId={openEventId}
         onClose={() => setOpenEventId(null)}
         isMobile={isNarrow}
+        overlay
       />
 
       {/* floating planning bar */}
