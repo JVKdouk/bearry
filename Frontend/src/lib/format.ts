@@ -1,19 +1,9 @@
 import dayjs from "dayjs";
 import type { LifeArea, Priority } from "./types";
 
-export function fmtDate(iso?: string | null): string {
-  if (!iso) return "";
-  return dayjs(iso).format("MMM D");
-}
-
 export function fmtDateTime(iso?: string | null): string {
   if (!iso) return "";
   return dayjs(iso).format("MMM D, HH:mm");
-}
-
-export function fmtTime(iso?: string | null): string {
-  if (!iso) return "";
-  return dayjs(iso).format("HH:mm");
 }
 
 export function durationLabel(min?: number | null): string {

@@ -81,11 +81,6 @@ function staticViews(): StaticProviderView[] {
   return staticProviderViews;
 }
 
-/** Test hook: drop the memo when the registry is re-seeded between cases. */
-export function resetProviderViewCache(): void {
-  staticProviderViews = null;
-}
-
 export async function listForUser(userId: string) {
   const rows = (await database.integration.findMany({
     where: { userId },

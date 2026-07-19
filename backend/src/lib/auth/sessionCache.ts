@@ -46,12 +46,6 @@ export function evictCachedSession(sessionId: string): void {
   store.delete(sessionId);
 }
 
-export function flushSessionCache(): number {
-  const n = store.size;
-  store.clear();
-  return n;
-}
-
 function sweep(now = Date.now()): number {
   let dropped = 0;
   for (const [id, entry] of store) {

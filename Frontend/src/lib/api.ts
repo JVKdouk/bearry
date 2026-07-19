@@ -295,7 +295,8 @@ export const api = {
     }),
 
   // Digest
-  digestStatus: () => request<DigestStatus>("/digest/status"),
+  digestStatus: (verify?: boolean) =>
+    request<DigestStatus>("/digest/status", verify ? { query: { verify: "1" } } : {}),
   digestSettings: (body: {
     daily?: boolean;
     weekly?: boolean;

@@ -46,6 +46,21 @@ export function DigestTab() {
   const [status, setStatus] = useState<DigestStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [checked, setChecked] = useState<{ ok: boolean; error?: string } | null>(null);
+
+  async function checkConnection() {
+    setChecking(true);
+    setChecked(null);
+    try {
+      const fresh = await api.digestStatus(true);
+      setChecked(fresh.verified ?? { ok: false, error: "The server didn't report a result" });
+    } catch (e) {
+      setChecked({ ok: false, error: errText(e, "Couldn't reach the server") });
+    } finally {
+      setChecking(false);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -133,9 +148,28 @@ export function DigestTab() {
           onChange={(v) => patch({ aiConsent: v })}
         />
       </Card>
-      <Button icon={<MailOutlined />} loading={sending} onClick={sendTest} disabled={!status.serverEmail}>
-        Send a test digest now
-      </Button>
+      <Space wrap>
+        <Button icon={<MailOutlined />} loading={sending} onClick={sendTest} disabled={!status.serverEmail}>
+          Send a test digest now
+        </Button>
+        {/* Configuration being present isn't the same as it working: a Gmail
+            account password where an App Password is required looks correctly
+            set up and fails only at send time. This checks rather than assumes. */}
+        <Button loading={checking} onClick={checkConnection} disabled={!status.serverEmail}>
+          Check connection
+        </Button>
+      </Space>
+      {checked && (
+        <Alert
+          type={checked.ok ? "success" : "error"}
+          showIcon
+          message={
+            checked.ok
+              ? "The mail server accepted our credentials."
+              : `The mail server rejected the connection: ${checked.error ?? "unknown error"}`
+          }
+        />
+      )}
     </Space>
   );
 }

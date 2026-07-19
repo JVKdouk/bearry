@@ -271,6 +271,8 @@ export interface Integration {
 }
 
 export interface DigestStatus {
+  /** Present only when the caller asked for a live check of the mail transport. */
+  verified?: { ok: boolean; error?: string };
   email: boolean;
   daily: boolean;
   weekly: boolean;

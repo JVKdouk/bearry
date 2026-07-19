@@ -12,6 +12,7 @@ import { csrfOriginCheck } from "@/core/middlewares/csrf";
 import { overloadGuard, overloadRelease } from "@/core/middlewares/overload";
 import { startSessionSweep } from "@/src/lib/sessionCleanup";
 import { startTombstoneSweep } from "@/src/lib/sync/tombstones";
+import { startDigestSchedule } from "@/src/lib/digest/runner";
 import type { SafeUser } from "@/core/middlewares/auth";
 
 import "@/core/config";
@@ -138,5 +139,6 @@ export default async function startServer() {
     console.info(`Server is running at http://0.0.0.0:${port}`);
     startSessionSweep();
     startTombstoneSweep();
+    startDigestSchedule();
   });
 }
