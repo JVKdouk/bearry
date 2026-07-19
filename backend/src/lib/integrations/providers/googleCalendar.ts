@@ -7,86 +7,27 @@
  * OAuth creds it still accepts a pasted refresh token so the pipeline is testable.
  */
 
-// Side-effect import: guarantees dotenv has populated process.env before the
-// module-level reads below. Without it the bundled build can evaluate this file
-// before core/config runs, silently leaving OAuth "unconfigured" in production
-// even though the credentials are present in .env.
-import "@/core/config";
-
 import type { IntegrationProvider } from "../types";
 import type { EventBlock } from "../schema/blocks";
+import {
+  HAS_OAUTH,
+  IDENTITY_SCOPES,
+  NO_REFRESH_TOKEN_HELP,
+  accessTokenFromRefresh,
+  authUrlFor,
+  emailFromIdToken,
+  exchangeCode,
+  googleGet,
+} from "./googleOAuth";
 
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const HAS_OAUTH = !!(CLIENT_ID && CLIENT_SECRET);
-// `openid email` lets us learn WHICH Google account was just connected, so the
-// same user can attach several accounts and tell them apart. The identity comes
-// back in the id_token of the token exchange — no extra API call, and no access
-// to anything beyond the address itself.
-const SCOPE = "openid email https://www.googleapis.com/auth/calendar.events";
-const TOKEN_URL = "https://oauth2.googleapis.com/token";
-
-/** Where Google sends the browser after consent — must EXACTLY match a redirect
- *  URI registered on the OAuth client in Google Cloud Console. */
-const REDIRECT_URI =
-  `${process.env.OAUTH_REDIRECT_BASE ?? `http://localhost:${process.env.SERVER_PORT ?? 20001}`}` +
-  `/integrations/google-calendar/callback`;
+const PROVIDER_ID = "google-calendar";
+const SCOPE = `${IDENTITY_SCOPES} https://www.googleapis.com/auth/calendar.events`;
 
 type GTime = { dateTime?: string; date?: string };
 type GEvent = {
   id: string; status?: string; summary?: string; description?: string;
   location?: string; htmlLink?: string; start?: GTime; end?: GTime;
 };
-
-async function postForm(body: Record<string, string>): Promise<Record<string, unknown>> {
-  const res = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(body).toString(),
-  });
-  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!res.ok) {
-    const detail = (json.error_description ?? json.error ?? res.statusText) as string;
-    throw new Error(`Google auth failed (${res.status}): ${detail}`);
-  }
-  return json;
-}
-
-async function exchangeCode(code: string): Promise<{ refresh_token?: string; id_token?: string }> {
-  return postForm({
-    code, client_id: CLIENT_ID!, client_secret: CLIENT_SECRET!,
-    redirect_uri: REDIRECT_URI, grant_type: "authorization_code",
-  });
-}
-
-/**
- * Read the account email out of the id_token. The token came straight from
- * Google's token endpoint over TLS, so we decode the payload for its claim
- * rather than verifying a signature we already trust the transport for; it is
- * used only as a local label/dedupe key, never as an authorization decision.
- */
-function emailFromIdToken(idToken?: string): string | null {
-  if (!idToken) return null;
-  const payload = idToken.split(".")[1];
-  if (!payload) return null;
-  try {
-    const json = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    const email = typeof json.email === "string" ? json.email.trim().toLowerCase() : null;
-    return email || null;
-  } catch {
-    return null;
-  }
-}
-
-async function accessTokenFromRefresh(refreshToken: string): Promise<string> {
-  const json = await postForm({
-    refresh_token: refreshToken, client_id: CLIENT_ID!, client_secret: CLIENT_SECRET!,
-    grant_type: "refresh_token",
-  });
-  const token = json.access_token as string | undefined;
-  if (!token) throw new Error("Google did not return an access token");
-  return token;
-}
 
 /**
  * `singleEvents: true` asks Google to expand recurring events into concrete
@@ -110,14 +51,10 @@ async function listEvents(accessToken: string): Promise<GEvent[]> {
     timeMin: new Date(now - 7 * 86_400_000).toISOString(),
     timeMax: new Date(now + 60 * 86_400_000).toISOString(),
   });
-  const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => res.statusText);
-    throw new Error(`Google events.list failed (${res.status}): ${detail.slice(0, 200)}`);
-  }
-  const json = (await res.json()) as { items?: GEvent[] };
+  const json = await googleGet<{ items?: GEvent[] }>(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+    accessToken,
+  );
   return json.items ?? [];
 }
 
@@ -145,7 +82,7 @@ function toEventBlock(ev: GEvent): EventBlock | null {
 }
 
 export const googleCalendarProvider: IntegrationProvider = {
-  id: "google-calendar",
+  id: PROVIDER_ID,
   name: "Google Calendar",
   version: "1.0.0",
   category: "calendar",
@@ -156,28 +93,14 @@ export const googleCalendarProvider: IntegrationProvider = {
   available: true,
   trust: "first-party",
 
-  getAuthUrl: HAS_OAUTH
-    ? (state) => {
-        const params = new URLSearchParams({
-          client_id: CLIENT_ID!,
-          redirect_uri: REDIRECT_URI,
-          response_type: "code",
-          access_type: "offline",
-          prompt: "consent",
-          include_granted_scopes: "true",
-          scope: SCOPE,
-          state,
-        });
-        return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-      }
-    : undefined,
+  getAuthUrl: HAS_OAUTH ? (state) => authUrlFor(PROVIDER_ID, SCOPE, state) : undefined,
 
   async connect(input) {
     if (HAS_OAUTH) {
       if (!input.code) throw new Error("Missing Google authorization code");
-      const tokens = await exchangeCode(input.code);
+      const tokens = await exchangeCode(PROVIDER_ID, input.code);
       if (!tokens.refresh_token) {
-        throw new Error("Google didn't return a refresh token. Remove BearAI under your Google Account → Security → Third-party access, then reconnect.");
+        throw new Error(NO_REFRESH_TOKEN_HELP);
       }
       const email = emailFromIdToken(tokens.id_token);
       return {

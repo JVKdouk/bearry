@@ -34,7 +34,6 @@ function stub(
 export const comingSoonProviders: IntegrationProvider[] = [
   stub("outlook-calendar", "Outlook Calendar", "calendar", "📆", "Two-way sync with Microsoft 365 calendars.", ["event"]),
   stub("apple-calendar", "iCloud Calendar", "calendar", "🍎", "Sync your Apple Calendar via CalDAV.", ["event"]),
-  stub("google-tasks", "Google Tasks", "tasks", "☑️", "Import your Google Tasks lists.", ["task"]),
   stub("todoist", "Todoist", "tasks", "✅", "Import tasks and projects from Todoist.", ["task"]),
   stub("notion", "Notion", "notes", "🗒️", "Pull pages and databases in as notes.", ["note"]),
 ];

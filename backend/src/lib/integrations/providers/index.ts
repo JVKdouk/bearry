@@ -7,6 +7,7 @@
 import { register } from "../registry";
 import { googleCalendarProvider } from "./googleCalendar";
 import { icsCalendarProvider } from "./icsCalendar";
+import { googleTasksProvider } from "./googleTasks";
 import { tickTickProvider } from "./ticktick";
 import { comingSoonProviders } from "./comingSoon";
 
@@ -16,6 +17,7 @@ export function registerAllProviders(): void {
   if (done) return;
   register(googleCalendarProvider);
   register(icsCalendarProvider);
+  register(googleTasksProvider);
   register(tickTickProvider);
   comingSoonProviders.forEach(register);
   done = true;
