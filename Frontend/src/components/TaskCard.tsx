@@ -9,6 +9,8 @@ import {
 } from "@ant-design/icons";
 import { App as AntdApp } from "antd";
 import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import dayjs from "dayjs";
 import { Pill } from "./Pill";
 import { useSync } from "@/store/sync";
@@ -20,12 +22,41 @@ import {
   PRIORITY_COLOR,
   PRIORITY_LABEL,
 } from "@/lib/format";
-import { TEXT } from "@/lib/theme";
+import { SUNSET, TEXT } from "@/lib/theme";
 import { describeRepeat } from "@/lib/recurrence";
 import { useSelection } from "@/store/selection";
 import { useLongPress } from "@/lib/useLongPress";
 import { useRowSwipe, ROW_SWIPE_COMMIT_PX } from "@/lib/useRowSwipe";
 import type { Block } from "@/lib/types";
+
+/**
+ * Six sparks bursting outward from a point on screen, for the moment a task is
+ * completed. Rendered through a portal to <body> on purpose: the card clips its
+ * own overflow (for the swipe reveal and rounded corners), which would slice the
+ * sparks off at the corner where the checkbox lives — a fixed overlay at the
+ * checkbox's screen position escapes that entirely.
+ */
+function SparkBurst({ x, y }: { x: number; y: number }) {
+  return createPortal(
+    <div
+      aria-hidden
+      style={{ position: "fixed", left: x, top: y, width: 0, height: 0, pointerEvents: "none", zIndex: 4000 }}
+    >
+      {Array.from({ length: 6 }).map((_, i) => (
+        <span
+          key={i}
+          className="task-spark"
+          style={{ ["--spark-angle" as string]: `${i * 60}deg` }}
+        />
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
+/** Phases of the completion flourish: burst the sparks, slide the card out, then
+ *  collapse the gap so the rest settle up — each handed off on a timer. */
+type CompletePhase = "idle" | "burst" | "slide" | "collapse";
 
 // The card is the app's core object: pills on top, a bold title, a time row,
 // and a footer with its list. `featured` fills it with the accent gradient —
@@ -44,6 +75,41 @@ export function TaskCard({
   const openEditTask = useUI((s) => s.openEditTask);
   const { modal } = AntdApp.useApp();
   const router = useRouter();
+
+  // Completion flourish. `phase` drives the sparks → slide → collapse sequence;
+  // `burst` carries the checkbox's screen position for the portal overlay.
+  const [phase, setPhase] = useState<CompletePhase>("idle");
+  const [burst, setBurst] = useState<{ x: number; y: number } | null>(null);
+  const checkRef = useRef<HTMLButtonElement>(null);
+  const timers = useRef<number[]>([]);
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+
+  /** Tick the task done — with the flourish, unless the user prefers less motion. */
+  function completeTask() {
+    if (phase !== "idle") return;
+    const reduce =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      update("block", todo.id, { status: "done" });
+      return;
+    }
+    const r = checkRef.current?.getBoundingClientRect();
+    if (r) setBurst({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+    setPhase("burst");
+    timers.current.push(
+      // Sparks live ~0.8s inside the 1s flourish; the tick pops immediately.
+      window.setTimeout(() => setBurst(null), 850),
+      // 1s of flourish, then the card slides out to the right…
+      window.setTimeout(() => setPhase("slide"), 1000),
+      // …and once it's gone, the gap collapses so the rest settle upward…
+      window.setTimeout(() => setPhase("collapse"), 1000 + 360),
+      // …and only then is it actually completed (which unmounts it here).
+      window.setTimeout(() => update("block", todo.id, { status: "done" }), 1000 + 360 + 320),
+    );
+  }
+
+  const completing = phase !== "idle";
 
   // Bulk selection. A long-press enters selection mode; while in it, a tap
   // toggles the card instead of opening it. Subscribing to `has(id)` rather
@@ -140,6 +206,25 @@ export function TaskCard({
   const leftArmed = dx <= -ROW_SWIPE_COMMIT_PX; // swiping left → plan
 
   return (
+    <>
+    {/* Collapse wrapper: after the card slides out, this animates its row from
+        1fr → 0fr so the tasks below settle upward instead of snapping. */}
+    <div
+      style={{
+        display: "grid",
+        gridTemplateRows: phase === "collapse" ? "0fr" : "1fr",
+        transition: "grid-template-rows 0.32s ease",
+      }}
+    >
+    <div style={{ overflow: "hidden", minHeight: 0 }}>
+    {/* Slide wrapper: the whole card leaves to the right once the sparks finish. */}
+    <div
+      style={{
+        transform: phase === "slide" || phase === "collapse" ? "translateX(115%)" : "none",
+        opacity: phase === "slide" || phase === "collapse" ? 0 : 1,
+        transition: "transform 0.36s ease-in, opacity 0.36s ease-in",
+      }}
+    >
     <div style={{ position: "relative", borderRadius: 16, overflow: "hidden" }}>
       {/* What the swipe will do, revealed in the gap the sliding card opens up.
           The label brightens as you cross the commit distance so a release
@@ -298,10 +383,12 @@ export function TaskCard({
             corner belongs to the selection tick and a tap means "select". */}
         {!isEvent && !selectionActive && (
         <button
+          ref={checkRef}
           aria-label={done ? "Mark as not done" : "Mark as done"}
           onClick={(e) => {
             e.stopPropagation();
-            update("block", todo.id, { status: done ? "todo" : "done" });
+            if (done) update("block", todo.id, { status: "todo" });
+            else completeTask();
           }}
           // 44×44 hit area (a comfortable tap target) around a 30px circle; the
           // negative margin keeps the layout footprint the old size so nothing
@@ -321,25 +408,31 @@ export function TaskCard({
         >
           <span
             aria-hidden
+            className={completing ? "checkbox-pop" : undefined}
             style={{
               width: 30,
               height: 30,
               borderRadius: "50%",
               display: "grid",
               placeItems: "center",
-              background: done
-                ? featured
-                  ? "rgba(255,255,255,0.9)"
-                  : "#a855f7"
-                : "transparent",
+              // On completion the tick fills with the same sunset gradient as the
+              // featured "next up" card — the moment of finishing borrows the
+              // app's hero colour.
+              background: completing
+                ? SUNSET
+                : done
+                  ? featured
+                    ? "rgba(255,255,255,0.9)"
+                    : "#a855f7"
+                  : "transparent",
               border: `1.5px solid ${
-                done
+                done || completing
                   ? "transparent"
                   : featured
                     ? "rgba(255,255,255,0.6)"
                     : "#33334a"
               }`,
-              color: done ? (featured ? "#7c3aed" : "#fff") : "transparent",
+              color: completing ? "#fff" : done ? (featured ? "#7c3aed" : "#fff") : "transparent",
               transition: "all 0.15s",
             }}
           >
@@ -391,5 +484,10 @@ export function TaskCard({
       )}
     </div>
     </div>
+    </div>
+    </div>
+    </div>
+    {burst && <SparkBurst x={burst.x} y={burst.y} />}
+    </>
   );
 }

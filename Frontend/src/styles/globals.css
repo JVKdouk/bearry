@@ -748,3 +748,52 @@ a {
     animation: none;
   }
 }
+
+/* Task-completion flourish (TaskCard). Six sparks burst from the checkbox and
+   the tick pops as it fills with the sunset gradient. Rendered via a portal so
+   the card's own overflow clipping can't slice them off at the corner. */
+.task-spark {
+  position: absolute;
+  left: -1.5px;
+  top: -5.5px;
+  width: 3px;
+  height: 11px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #a855f7 0%, #ff6b2c 100%);
+  transform-origin: center;
+  animation: task-spark-fly 0.75s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+@keyframes task-spark-fly {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--spark-angle)) translateY(2px) scaleY(0.5);
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--spark-angle)) translateY(-24px) scaleY(1);
+  }
+}
+.checkbox-pop {
+  animation: checkbox-pop 0.4s ease-out;
+}
+@keyframes checkbox-pop {
+  0% {
+    transform: scale(0.6);
+  }
+  55% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+/* Reduced motion: the JS path skips the flourish entirely, but guard the CSS too. */
+@media (prefers-reduced-motion: reduce) {
+  .task-spark,
+  .checkbox-pop {
+    animation: none;
+  }
+}
