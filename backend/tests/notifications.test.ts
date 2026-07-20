@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import {
   MAX_LATENESS_MINUTES,
   isStillRelevant,
+  nextRecurringFireAt,
   reminderBody,
 } from "@/src/lib/notifications/reminders";
 
@@ -76,4 +77,45 @@ test("wording never leaks a raw minute count for long offsets", () => {
   // "in 10080 minutes" is technically true and completely useless.
   const body = reminderBody("Renew passport", 60 * 24 * 7);
   assert.ok(!body.includes("10080"));
+});
+
+// ── Recurring reminders re-arm (nextRecurringFireAt) ─────────────────────────
+
+const WEEKLY = "FREQ=WEEKLY";
+// A past Monday anchor so occurrences are Mondays 13:00Z; NOW is Mon 2026-07-20.
+const ANCHOR = new Date("2026-07-06T13:00:00.000Z");
+
+test("firing an occurrence re-arms to the following one, not the same one", () => {
+  // offset 0: fired the 2026-07-13 occurrence; next is 2026-07-20.
+  const fired = new Date("2026-07-13T13:00:00.000Z");
+  const next = nextRecurringFireAt(ANCHOR, WEEKLY, fired, 0, new Date("2026-07-13T13:00:00.000Z"));
+  assert.equal(next?.toISOString(), "2026-07-20T13:00:00.000Z");
+});
+
+test("a lead-time reminder re-arms past the occurrence it warned about", () => {
+  // offset 60: the fireAt is one hour before the occurrence. Firing the reminder
+  // for the 2026-07-20 occurrence (fireAt 12:00) must jump to 2026-07-27, not
+  // back to 2026-07-20 and fire again immediately.
+  const fired = new Date("2026-07-20T12:00:00.000Z");
+  const now = new Date("2026-07-20T12:00:00.000Z");
+  const next = nextRecurringFireAt(ANCHOR, WEEKLY, fired, 60, now);
+  // 2026-07-27 13:00 minus one hour lead.
+  assert.equal(next?.toISOString(), "2026-07-27T12:00:00.000Z");
+});
+
+test("downtime past several occurrences skips to the next FUTURE one", () => {
+  // Stale fireAt from three weeks ago; now is 2026-07-20. It must not walk every
+  // missed week — it jumps straight to the next occurrence at/after now.
+  const staleFired = new Date("2026-06-29T13:00:00.000Z");
+  const now = new Date("2026-07-20T09:00:00.000Z");
+  const next = nextRecurringFireAt(ANCHOR, WEEKLY, staleFired, 0, now);
+  assert.ok(next && next.getTime() >= now.getTime(), "must land on/after now");
+  assert.equal(next!.toISOString(), "2026-07-20T13:00:00.000Z");
+});
+
+test("a finished series re-arms to nothing", () => {
+  const fired = new Date("2026-07-13T13:00:00.000Z");
+  const next = nextRecurringFireAt(ANCHOR, "FREQ=WEEKLY;COUNT=2", fired, 0, fired);
+  // Anchor 07-06 + one more (07-13) exhausts COUNT=2; nothing after 07-13.
+  assert.equal(next, null);
 });

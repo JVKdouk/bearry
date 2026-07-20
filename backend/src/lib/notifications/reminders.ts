@@ -15,6 +15,7 @@
 import database from "@/core/database";
 import { jobCrypto } from "@/src/lib/crypto/requestCrypto";
 import { whitelistJobActor } from "@/src/lib/security/rateLimiter";
+import { nextAfter } from "@/src/lib/recurrence/rrule";
 import { pushEnabled, sendToUser } from "./push";
 
 /**
@@ -49,6 +50,31 @@ export interface DueReminder {
 export function isStillRelevant(fireAt: Date, now: Date, maxLatenessMinutes = MAX_LATENESS_MINUTES): boolean {
   const lateBy = (now.getTime() - fireAt.getTime()) / 60_000;
   return lateBy >= 0 && lateBy <= maxLatenessMinutes;
+}
+
+/**
+ * The next fireAt for a recurring reminder once the occurrence at `firedFireAt`
+ * has been handled — or null when the series has no occurrence left.
+ *
+ * A recurring reminder must always point at a FUTURE occurrence, so it keeps
+ * notifying week after week instead of firing once and going quiet. It advances
+ * past both the occurrence just handled and anything missed while the server was
+ * down (afterPoint = max(that occurrence, now)), so downtime never produces a
+ * burst of pings for dates that already passed. `anchor` is the series' first
+ * start (its dtStart); the offset is preserved so a "1 hour before" stays that.
+ */
+export function nextRecurringFireAt(
+  anchor: Date,
+  rule: string,
+  firedFireAt: Date,
+  offsetMinutes: number,
+  now: Date,
+): Date | null {
+  const offsetMs = offsetMinutes * 60_000;
+  const occStart = firedFireAt.getTime() + offsetMs;
+  const afterPoint = new Date(Math.max(occStart, now.getTime()));
+  const nextStart = nextAfter(rule, anchor, afterPoint);
+  return nextStart ? new Date(nextStart.getTime() - offsetMs) : null;
 }
 
 /** How a reminder should read, given how far ahead of the thing it is. */
@@ -118,15 +144,43 @@ export async function dueReminders(now: Date, limit = BATCH): Promise<DueReminde
  * bounded query above means they'd never be cleared by delivery either.
  */
 export async function discardStaleReminders(now: Date): Promise<number> {
-  const { count } = await database.reminder.updateMany({
-    where: {
-      delivered: false,
-      deletedAt: null,
-      fireAt: { not: null, lt: new Date(now.getTime() - MAX_LATENESS_MINUTES * 60_000) },
-    },
-    data: { delivered: true },
+  const cutoff = new Date(now.getTime() - MAX_LATENESS_MINUTES * 60_000);
+  const stale = await database.reminder.findMany({
+    where: { delivered: false, deletedAt: null, fireAt: { not: null, lt: cutoff } },
+    select: { id: true, targetId: true, fireAt: true, offsetMinutes: true },
   });
-  return count;
+  if (stale.length === 0) return 0;
+
+  // A stale reminder on a recurring event is not retired — it's re-armed to the
+  // next future occurrence. Otherwise a stretch of downtime that outlived one
+  // occurrence's lateness window would silently end the whole series. Recurring
+  // *tasks* keep the existing completion-advance path and are left to retire.
+  const blocks = await database.block.findMany({
+    where: { id: { in: stale.map((r) => r.targetId) }, deletedAt: null, kind: "event" },
+    select: { id: true, recurrenceRule: true, startTime: true },
+  });
+  const recurringEvent = new Map(
+    blocks
+      .filter((b) => b.recurrenceRule && b.startTime)
+      .map((b) => [b.id, b as { recurrenceRule: string; startTime: Date }]),
+  );
+
+  const retire: string[] = [];
+  for (const r of stale) {
+    const b = recurringEvent.get(r.targetId);
+    const next = b && r.fireAt
+      ? nextRecurringFireAt(b.startTime, b.recurrenceRule, r.fireAt, r.offsetMinutes, now)
+      : null;
+    if (next) {
+      await database.reminder.update({ where: { id: r.id }, data: { fireAt: next, delivered: false } });
+    } else {
+      retire.push(r.id);
+    }
+  }
+  if (retire.length > 0) {
+    await database.reminder.updateMany({ where: { id: { in: retire } }, data: { delivered: true } });
+  }
+  return retire.length;
 }
 
 export type SweepResult = { considered: number; sent: number; skipped: number; discarded: number };
@@ -171,6 +225,25 @@ export async function deliverDueReminders(now = new Date()): Promise<SweepResult
         tag: `block:${reminder.targetId}`,
       });
       result.sent += 1;
+
+      // A recurring event's reminder re-arms itself to the next occurrence so it
+      // keeps firing rather than going quiet after one. claimReminder just set
+      // delivered=true; this hands it its next future moment and re-opens it.
+      if (target.kind === "event" && target.recurrenceRule && target.startTime) {
+        const next = nextRecurringFireAt(
+          target.startTime,
+          target.recurrenceRule,
+          reminder.fireAt,
+          reminder.offsetMinutes,
+          now,
+        );
+        if (next) {
+          await database.reminder.update({
+            where: { id: reminder.id },
+            data: { fireAt: next, delivered: false },
+          });
+        }
+      }
     } catch (err) {
       // One user's failure must never stop the rest of the sweep.
       console.error(`Reminder ${reminder.id} failed`, err);
@@ -189,7 +262,7 @@ export async function deliverDueReminders(now = new Date()): Promise<SweepResult
  */
 async function targetInfo(
   reminder: DueReminder,
-): Promise<{ title: string; kind: string } | null> {
+): Promise<{ title: string; kind: string; recurrenceRule: string | null; startTime: Date | null } | null> {
   const actor = `job:reminders`;
   whitelistJobActor(actor);
   const crypto = await jobCrypto(reminder.userId, actor);
@@ -207,7 +280,13 @@ async function targetInfo(
   if (row.status === "done" || row.letGoAt) return null;
   const decrypted = crypto.decrypt("Block", row as Record<string, unknown>);
   const title = String(decrypted.title ?? "");
-  return title ? { title, kind: String(row.kind) } : null;
+  if (!title) return null;
+  return {
+    title,
+    kind: String(row.kind),
+    recurrenceRule: row.recurrenceRule ?? null,
+    startTime: row.startTime ?? null,
+  };
 }
 
 const TICK_MS = Number(process.env.REMINDER_TICK_SECONDS ?? 60) * 1000;

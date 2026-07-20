@@ -12,6 +12,7 @@
 import { createHash } from "node:crypto";
 import database from "@/core/database";
 import { encryptRecord } from "@/src/lib/crypto/fieldCrypto";
+import { defaultReminderFireAt } from "@/src/lib/notifications/defaultReminder";
 import type { CanonicalBlock } from "./schema/blocks";
 
 export type IngestSummary = {
@@ -96,6 +97,27 @@ export async function ingestBlocks(
 ): Promise<IngestSummary> {
   const summary: IngestSummary = { created: 0, updated: 0, skipped: 0, byType: {} };
 
+  // Imported items get the same default "at the time" reminder a hand-created
+  // one does — but only newly created ones (never on a re-sync update, which
+  // would resurrect a reminder the user deleted), and only when the shared rule
+  // says it's worth one (future, timed / recurring). The 9am-for-a-deadline case
+  // needs the owner's zone, read once here. Reminders are collected and written
+  // in a single batch after the loop, so a large first sync stays one insert.
+  const now = new Date();
+  const tz =
+    (await database.scheduleProfile.findFirst({ where: { userId }, select: { timezone: true } }))
+      ?.timezone ?? "UTC";
+  const remindersToCreate: {
+    userId: string;
+    targetType: string;
+    targetId: string;
+    kind: "time";
+    triggerSpec: string;
+    offsetMinutes: number;
+    fireAt: Date;
+    delivered: boolean;
+  }[] = [];
+
   // Load every existing mapping for this batch in ONE query instead of one per
   // block. A first Google/ICS sync is routinely hundreds or thousands of events,
   // and the per-block lookup made import cost a round-trip per item — the single
@@ -145,7 +167,8 @@ export async function ingestBlocks(
       continue;
     }
 
-    const data = encryptRecord("Block", userId, dek, toEntityData(block, providerId));
+    const entity = toEntityData(block, providerId);
+    const data = encryptRecord("Block", userId, dek, entity);
 
     if (existing) {
       // Update the previously-ingested entity in place. On failure the entity
@@ -186,7 +209,40 @@ export async function ingestBlocks(
         },
       });
       summary.created += 1;
+
+      // Default reminder for the freshly imported item, when the shared rule
+      // finds a future moment for it. Structural fields (start/deadline/rule)
+      // are cleartext on `entity`; only title/body/location were encrypted.
+      const fireAt = defaultReminderFireAt(
+        {
+          kind: String(entity.kind),
+          startTime: (entity.startTime as Date | undefined) ?? null,
+          deadline: (entity.deadline as Date | undefined) ?? null,
+          recurrenceRule: (entity.recurrenceRule as string | undefined) ?? null,
+        },
+        tz,
+        now,
+      );
+      if (fireAt) {
+        const enc = encryptRecord("Reminder", userId, dek, {
+          triggerSpec: JSON.stringify({ offsetMinutes: 0 }),
+        });
+        remindersToCreate.push({
+          userId,
+          targetType: "block",
+          targetId: created.id,
+          kind: "time",
+          triggerSpec: enc.triggerSpec as string,
+          offsetMinutes: 0,
+          fireAt,
+          delivered: fireAt.getTime() <= now.getTime(),
+        });
+      }
     }
+  }
+
+  if (remindersToCreate.length > 0) {
+    await database.reminder.createMany({ data: remindersToCreate });
   }
 
   return summary;
