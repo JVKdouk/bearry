@@ -141,6 +141,24 @@ interface MoveDrag {
   moved: boolean;
 }
 
+/**
+ * An in-flight drag of a *committed* block (a real row on the calendar), either
+ * moved to a new time/day or resized from its bottom edge. Kept separate from
+ * MoveDrag because a proposal ghost edits the pending plan, while this writes
+ * straight to the block on drop.
+ */
+interface BlockDrag {
+  blockId: string;
+  mode: "move" | "resize";
+  /** Where inside the block the pointer grabbed it (move only), so it doesn't jump. */
+  grabOffsetMin: number;
+  dayIdx: number;
+  startMin: number;
+  durMin: number;
+  /** False until the pointer actually travels — a tap still opens the block. */
+  moved: boolean;
+}
+
 const snap = (min: number) => Math.round(min / SNAP) * SNAP;
 const blockKey = (b: ScheduledBlock) => `${b.taskId}|${b.start}`;
 const hhmmToMin = (s: string) => {
@@ -228,6 +246,15 @@ function CalendarInner() {
   const moveDragRef = useRef<MoveDrag | null>(null);
   moveDragRef.current = moveDrag;
   const colRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Dragging a committed block — move it to a new time/day, or resize its
+  // duration from the bottom edge. Writes to the block on drop.
+  const [blockDrag, setBlockDrag] = useState<BlockDrag | null>(null);
+  const blockDragRef = useRef<BlockDrag | null>(null);
+  blockDragRef.current = blockDrag;
+  // Set true when a drag actually moved something, so the click that follows
+  // pointerup opens nothing.
+  const suppressBlockClickRef = useRef(false);
 
   // ---- planning state ----
   const [proposal, setProposal] = useState<ScheduleProposal | null>(null);
@@ -700,6 +727,78 @@ function CalendarInner() {
     };
   }, [moveDrag, days]);
 
+  // Move / resize a committed block. Same column-and-snap maths as the ghost
+  // drag, but on release it writes straight to the block instead of editing a
+  // proposal. A drag that never travels is a plain click and opens the block
+  // (suppressed here so it doesn't both move AND open).
+  useEffect(() => {
+    if (!blockDrag) return;
+
+    const onMove = (e: PointerEvent) => {
+      const bd = blockDragRef.current;
+      if (!bd) return;
+
+      if (bd.mode === "move") {
+        let dayIdx = bd.dayIdx;
+        for (let i = 0; i < days.length; i++) {
+          const el = colRefs.current[i];
+          if (!el) continue;
+          const r = el.getBoundingClientRect();
+          if (e.clientX >= r.left && e.clientX <= r.right) {
+            dayIdx = i;
+            break;
+          }
+        }
+        const el = colRefs.current[dayIdx];
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        const minsAtPointer = ((e.clientY - r.top) / HOUR_PX) * 60 + DAY_START * 60;
+        const raw = snap(minsAtPointer - bd.grabOffsetMin);
+        const startMin = Math.max(DAY_START * 60, Math.min(raw, (DAY_END + 1) * 60 - bd.durMin));
+        const moved = bd.moved || startMin !== bd.startMin || dayIdx !== bd.dayIdx;
+        setBlockDrag({ ...bd, dayIdx, startMin, moved });
+      } else {
+        const el = colRefs.current[bd.dayIdx];
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        const minsAtPointer = ((e.clientY - r.top) / HOUR_PX) * 60 + DAY_START * 60;
+        // The bottom edge follows the pointer; never shorter than one snap step,
+        // never past the end of the day.
+        const endMin = Math.min((DAY_END + 1) * 60, Math.max(bd.startMin + SNAP, snap(minsAtPointer)));
+        const durMin = endMin - bd.startMin;
+        const moved = bd.moved || durMin !== bd.durMin;
+        setBlockDrag({ ...bd, durMin, moved });
+      }
+    };
+
+    const onUp = () => {
+      const bd = blockDragRef.current;
+      setBlockDrag(null);
+      if (!bd) return;
+      // A tap (no travel) falls through to the block's own click → open it.
+      if (!bd.moved) return;
+      // A real drag: don't let the trailing click also open the block.
+      suppressBlockClickRef.current = true;
+
+      const newStart = days[bd.dayIdx].startOf("day").add(bd.startMin, "minute");
+      const newEnd = newStart.add(bd.durMin, "minute");
+      update("block", bd.blockId, {
+        startTime: newStart.toISOString(),
+        endTime: newEnd.toISOString(),
+        estimatedDuration: bd.durMin,
+      });
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [blockDrag, days, update]);
+
   // ---- planning actions ----
   const selected = useMemo(
     () => (proposal?.blocks ?? []).filter((b) => !excluded.has(blockKey(b))),
@@ -773,6 +872,53 @@ function CalendarInner() {
       else n.add(key);
       return n;
     });
+
+  /**
+   * Adjust a suggestion from the review drawer: move it to another day (keeping
+   * its time of day) and/or change its duration. The equivalent of dragging or
+   * resizing it on the grid, for people who'd rather set exact values. Editing
+   * the proposal, not the block — nothing is written until you accept.
+   */
+  function editSuggestion(key: string, patch: { day?: string; durMin?: number }) {
+    let newKey = key;
+    setProposal((p) =>
+      p
+        ? {
+            ...p,
+            blocks: p.blocks.map((b) => {
+              if (blockKey(b) !== key) return b;
+              const cur = dayjs(b.start);
+              const durMin = Math.max(
+                SNAP,
+                patch.durMin ?? dayjs(b.end).diff(cur, "minute"),
+              );
+              const start = patch.day
+                ? dayjs(`${patch.day}T00:00:00`).hour(cur.hour()).minute(cur.minute())
+                : cur;
+              const end = start.add(durMin, "minute");
+              newKey = `${b.taskId}|${start.toISOString()}`;
+              return {
+                ...b,
+                start: start.toISOString(),
+                end: end.toISOString(),
+                reason: `${start.format("ddd, h:mm A")} — you set this.`,
+              };
+            }),
+          }
+        : p,
+    );
+    // The key embeds the start, so a day change re-identifies the block — carry
+    // any "dropped" mark across so it doesn't silently come back.
+    if (newKey !== key) {
+      setExcluded((sel) => {
+        if (!sel.has(key)) return sel;
+        const n = new Set(sel);
+        n.delete(key);
+        n.add(newKey);
+        return n;
+      });
+    }
+  }
 
   /** The date range a given view shows, independent of React state timing. */
   function rangeForView(v: View, a: Dayjs): { start: Dayjs; end: Dayjs } {
@@ -1524,12 +1670,41 @@ function CalendarInner() {
                     // covering it.
                     const lane = dayLayout.get(b.id) ?? { col: 0, cols: 1 };
                     const laneW = 100 / lane.cols;
+                    // A generated recurrence occurrence isn't a real row to move,
+                    // and a plan block is fine to nudge; everything else editable.
+                    const draggable = !b.isRepeat;
+                    const dragging = blockDrag?.blockId === b.masterId;
+                    // While resizing, the block grows/shrinks in place; while
+                    // moving, it stays put and faded and a preview leads the way.
+                    const resizing = dragging && blockDrag?.mode === "resize";
+                    const moving = dragging && blockDrag?.mode === "move";
+                    const shownHeight = resizing && blockDrag
+                      ? Math.max((blockDrag.durMin / 60) * HOUR_PX - BLOCK_GAP_PX, MIN_BLOCK_PX)
+                      : height;
+                    const startBlockDrag = (mode: "move" | "resize") => (e: React.PointerEvent) => {
+                      if (!draggable) return;
+                      e.stopPropagation();
+                      const el = e.currentTarget.closest("[data-block='event']");
+                      if (!el) return;
+                      const rect = el.getBoundingClientRect();
+                      const grabOffsetMin = ((e.clientY - rect.top) / HOUR_PX) * 60;
+                      setBlockDrag({
+                        blockId: b.masterId,
+                        mode,
+                        grabOffsetMin,
+                        dayIdx: days.indexOf(day),
+                        startMin: b.start.hour() * 60 + b.start.minute(),
+                        durMin: Math.max(SNAP, b.end.diff(b.start, "minute")),
+                        moved: false,
+                      });
+                    };
                     return (
                       <div
                         key={b.id}
                         data-block="event"
                         title={`${b.start.format("HH:mm")}–${b.end.format("HH:mm")}  ${b.title}`}
                         onMouseDown={(e) => e.stopPropagation()}
+                        onPointerDown={draggable ? startBlockDrag("move") : undefined}
                         role="button"
                         tabIndex={0}
                         aria-label={`${b.title}, ${b.start.format("HH:mm")} to ${b.end.format("HH:mm")}`}
@@ -1540,12 +1715,22 @@ function CalendarInner() {
                           }
                         }}
                         // A future occurrence opens the stored row: editing a
-                        // repeating item edits the series.
-                        onClick={() => openBlock(b)}
+                        // repeating item edits the series. A drag that actually
+                        // moved something suppresses this so it doesn't also open.
+                        onClick={() => {
+                          if (suppressBlockClickRef.current) {
+                            suppressBlockClickRef.current = false;
+                            return;
+                          }
+                          openBlock(b);
+                        }}
                         style={{
                           position: "absolute",
                           top,
-                          height,
+                          height: shownHeight,
+                          // Dragging a block claims the gesture (so touch doesn't
+                          // scroll the grid out from under it); a still block pans.
+                          touchAction: draggable ? "none" : "pan-y",
                           // Hug the column edges — a slim 2px inset left, ~1px
                           // right — so a block claims almost the whole slot
                           // width rather than floating in a wide margin. The
@@ -1580,8 +1765,9 @@ function CalendarInner() {
                           // lifecycle, and it should stop competing for
                           // attention with what's still ahead. Past TASKS keep
                           // full weight — those are still outstanding.
-                          opacity:
-                            b.kind === "event" && b.end.isBefore(now)
+                          opacity: moving
+                            ? 0.3
+                            : b.kind === "event" && b.end.isBefore(now)
                               ? 0.45
                               : b.isRepeat
                                 ? 0.72
@@ -1627,9 +1813,73 @@ function CalendarInner() {
                             {b.start.format("HH:mm")}
                           </span>
                         )}
+
+                        {/* Resize handle: a grabbable strip along the bottom edge
+                            that drags the end time. Only on real, tall-enough
+                            blocks — a generated occurrence isn't a row to resize,
+                            and a sliver has no room for a handle. */}
+                        {draggable && shownHeight >= STACKED_MIN_PX && (
+                          <div
+                            onPointerDown={startBlockDrag("resize")}
+                            onClick={(e) => e.stopPropagation()}
+                            aria-hidden
+                            style={{
+                              position: "absolute",
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              height: 10,
+                              cursor: "ns-resize",
+                              touchAction: "none",
+                              display: "flex",
+                              justifyContent: "center",
+                              alignItems: "flex-end",
+                              paddingBottom: 1,
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: 22,
+                                height: 3,
+                                borderRadius: 2,
+                                background: b.color,
+                                opacity: resizing ? 1 : 0.5,
+                              }}
+                            />
+                          </div>
+                        )}
                       </div>
                     );
                   })}
+
+                  {/* Live preview of a committed block being moved to a new slot
+                      — mirrors the ghost-move preview. Rendered in whichever day
+                      column the pointer is over, so a cross-day drag shows up in
+                      the target day while the original fades in place. */}
+                  {blockDrag?.mode === "move" && blockDrag.moved && days.indexOf(day) === blockDrag.dayIdx && (
+                    <div
+                      aria-hidden
+                      style={{
+                        position: "absolute",
+                        top: minToPx(blockDrag.startMin),
+                        height: Math.max((blockDrag.durMin / 60) * HOUR_PX - BLOCK_GAP_PX, MIN_BLOCK_PX),
+                        left: 2,
+                        right: 3,
+                        zIndex: 5,
+                        borderRadius: 8,
+                        background: "rgba(168,85,247,0.28)",
+                        border: "1px solid rgba(168,85,247,0.7)",
+                        pointerEvents: "none",
+                        padding: "2px 6px",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "#efe3ff",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {days[blockDrag.dayIdx].startOf("day").add(blockDrag.startMin, "minute").format("HH:mm")}
+                    </div>
+                  )}
 
                   {/* Proposed ghosts. Dropped ones are removed entirely rather
                       than greyed out, so the slot is genuinely free to tap and
@@ -2031,6 +2281,53 @@ function CalendarInner() {
                             >
                               {b.reason}
                             </div>
+
+                            {/* Set an exact day and duration — the keyboard
+                                equivalent of dragging/resizing on the grid. The
+                                whole row stops propagation so fiddling with it
+                                doesn't toggle keep/drop. */}
+                            {!off && (
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}
+                              >
+                                <input
+                                  type="date"
+                                  aria-label="Day"
+                                  value={dayjs(b.start).format("YYYY-MM-DD")}
+                                  onChange={(e) => e.target.value && editSuggestion(key, { day: e.target.value })}
+                                  style={{
+                                    background: "#17171f",
+                                    border: `1px solid ${SURFACE.borderSoft}`,
+                                    borderRadius: 7,
+                                    color: TEXT.secondary,
+                                    fontSize: 12,
+                                    padding: "4px 8px",
+                                    colorScheme: "dark",
+                                  }}
+                                />
+                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  <Button
+                                    size="small"
+                                    aria-label="Fifteen minutes shorter"
+                                    disabled={mins <= SNAP}
+                                    onClick={() => editSuggestion(key, { durMin: mins - SNAP })}
+                                  >
+                                    −
+                                  </Button>
+                                  <span style={{ fontSize: 12, color: TEXT.secondary, minWidth: 44, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
+                                    {durationLabel(mins)}
+                                  </span>
+                                  <Button
+                                    size="small"
+                                    aria-label="Fifteen minutes longer"
+                                    onClick={() => editSuggestion(key, { durMin: mins + SNAP })}
+                                  >
+                                    +
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                           <span
                             aria-label={off ? "Restore" : "Drop"}
