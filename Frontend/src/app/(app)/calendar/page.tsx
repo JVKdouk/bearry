@@ -15,9 +15,12 @@ import {
   Tag,
   Tooltip,
 } from "antd";
+import type { MenuProps } from "antd";
 import {
   CheckOutlined,
   CloseOutlined,
+  DeleteOutlined,
+  EditOutlined,
   LeftOutlined,
   MoreOutlined,
   RightOutlined,
@@ -194,6 +197,7 @@ function CalendarInner() {
   const setShowRegions = useUI((s) => s.setShowRegions);
   const pull = useSync((s) => s.pull);
   const update = useSync((s) => s.update);
+  const remove = useSync((s) => s.remove);
   const router = useRouter();
 
   const screens = Grid.useBreakpoint();
@@ -556,6 +560,47 @@ function CalendarInner() {
     // task, not a sheet describing the placement. Everything else opens as
     // itself — and there's one drawer now, so "itself" is all it takes.
     openEditTask(b.bearaiTaskId ?? b.masterId);
+  }
+
+  /**
+   * Right-click quick actions for a committed block. Kept small: open, complete
+   * (tasks only), and remove — the things worth doing without opening the drawer.
+   * A generated recurrence occurrence has no single row to act on, so it only
+   * offers "Open" (which opens the series).
+   */
+  function blockContextItems(b: Block): MenuProps["items"] {
+    const open = { key: "open", icon: <EditOutlined />, label: "Open", onClick: () => openBlock(b) };
+    if (b.isRepeat) return [open];
+
+    const isTaskish = b.kind === "todo";
+    const isPlan = !!b.bearaiTaskId;
+    const taskId = b.bearaiTaskId ?? b.masterId;
+    const items: MenuProps["items"] = [open];
+    if (isTaskish) {
+      items.push({
+        key: "done",
+        icon: <CheckOutlined />,
+        label: "Mark done",
+        onClick: () => {
+          update("block", taskId, { status: "done" });
+          message.success("Marked done");
+        },
+      });
+    }
+    items.push({ type: "divider" });
+    // Deleting a plan block just unschedules the task (the task lives on); a
+    // hand-made event/task is deleted outright.
+    items.push({
+      key: "delete",
+      icon: <DeleteOutlined />,
+      danger: true,
+      label: isPlan ? "Remove from calendar" : "Delete",
+      onClick: () => {
+        remove("block", b.masterId);
+        message.success(isPlan ? "Removed from calendar" : "Deleted");
+      },
+    });
+    return items;
   }
 
   const ghostsForDay = (day: Dayjs) =>
@@ -1696,8 +1741,12 @@ function CalendarInner() {
                                 });
                               };
                             return (
-                              <div
+                              <Dropdown
                                 key={b.id}
+                                trigger={["contextMenu"]}
+                                menu={{ items: blockContextItems(b) }}
+                              >
+                              <div
                                 data-block="event"
                                 title={`${b.start.format("HH:mm")}–${b.end.format("HH:mm")}  ${b.title}`}
                                 onMouseDown={(e) => e.stopPropagation()}
@@ -1836,6 +1885,7 @@ function CalendarInner() {
                                   ></div>
                                 )}
                               </div>
+                              </Dropdown>
                             );
                           })}
 
