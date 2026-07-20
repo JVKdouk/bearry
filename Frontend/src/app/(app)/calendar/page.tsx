@@ -88,6 +88,12 @@ const CAL_VIEW_KEY = "bearry.calView";
 // deliberate hold feels responsive.
 const BLOCK_HOLD_MS = 450;
 
+// While a block is in hand, dragging within this many px of the scroller's top
+// or bottom edge scrolls the grid — faster the closer you get — so you can reach
+// hours that are off-screen without letting go.
+const EDGE_SCROLL_ZONE_PX = 72;
+const EDGE_SCROLL_MAX_PX = 14;
+
 /**
  * How many lines of title a block of this height can show.
  *
@@ -262,6 +268,10 @@ function CalendarInner() {
   // Set true when a drag actually moved something, so the click that follows
   // pointerup opens nothing.
   const suppressBlockClickRef = useRef(false);
+  // Latest pointer position during a committed-block drag. The move is driven
+  // from a rAF loop reading this (not straight off pointermove) so the block
+  // keeps tracking even while only edge-autoscroll is moving the grid.
+  const dragPointRef = useRef<{ x: number; y: number } | null>(null);
 
   // Touch move is deliberate: a finger has to press-and-hold a block before it
   // becomes draggable, so an ordinary swipe scrolls the grid instead of dragging
@@ -494,6 +504,8 @@ function CalendarInner() {
   }
 
   function onTouchMove(e: React.TouchEvent) {
+    // A block in hand owns the gesture — don't also swipe the week across.
+    if (blockDragRef.current) return;
     const p = pinchRef.current;
     if (p && e.touches.length === 2) {
       const dist = pinchDistance(touchPoint(e.touches[0]), touchPoint(e.touches[1]));
@@ -804,12 +816,20 @@ function CalendarInner() {
   // drag, but on release it writes straight to the block instead of editing a
   // proposal. A drag that never travels is a plain click and opens the block
   // (suppressed here so it doesn't both move AND open).
+  //
+  // Depends on *whether* a drag is live, not on its every frame, so the rAF loop
+  // and listeners set up once at grab and tear down once at release.
+  const dragActive = blockDrag !== null;
   useEffect(() => {
-    if (!blockDrag) return;
+    if (!dragActive) return;
 
-    const onMove = (e: PointerEvent) => {
+    // Re-place the dragged block from the latest pointer position. Guarded so it
+    // only writes state when something actually changed — the rAF loop calls it
+    // every frame (for edge-autoscroll) and most frames are still.
+    const applyPoint = () => {
       const bd = blockDragRef.current;
-      if (!bd) return;
+      const p = dragPointRef.current;
+      if (!bd || !p) return;
 
       if (bd.mode === "move") {
         let dayIdx = bd.dayIdx;
@@ -817,7 +837,7 @@ function CalendarInner() {
           const el = colRefs.current[i];
           if (!el) continue;
           const r = el.getBoundingClientRect();
-          if (e.clientX >= r.left && e.clientX <= r.right) {
+          if (p.x >= r.left && p.x <= r.right) {
             dayIdx = i;
             break;
           }
@@ -825,16 +845,16 @@ function CalendarInner() {
         const el = colRefs.current[dayIdx];
         if (!el) return;
         const r = el.getBoundingClientRect();
-        const minsAtPointer = ((e.clientY - r.top) / HOUR_PX) * 60 + DAY_START * 60;
+        const minsAtPointer = ((p.y - r.top) / HOUR_PX) * 60 + DAY_START * 60;
         const raw = snap(minsAtPointer - bd.grabOffsetMin);
         const startMin = Math.max(DAY_START * 60, Math.min(raw, (DAY_END + 1) * 60 - bd.durMin));
-        const moved = bd.moved || startMin !== bd.startMin || dayIdx !== bd.dayIdx;
-        setBlockDrag({ ...bd, dayIdx, startMin, moved });
+        if (startMin === bd.startMin && dayIdx === bd.dayIdx) return;
+        setBlockDrag({ ...bd, dayIdx, startMin, moved: true });
       } else {
         const el = colRefs.current[bd.dayIdx];
         if (!el) return;
         const r = el.getBoundingClientRect();
-        const minsAtPointer = ((e.clientY - r.top) / HOUR_PX) * 60 + DAY_START * 60;
+        const minsAtPointer = ((p.y - r.top) / HOUR_PX) * 60 + DAY_START * 60;
         // The bottom edge follows the pointer; never shorter than one snap step,
         // never past the end of the day.
         const endMin = Math.min(
@@ -842,14 +862,40 @@ function CalendarInner() {
           Math.max(bd.startMin + SNAP, snap(minsAtPointer)),
         );
         const durMin = endMin - bd.startMin;
-        const moved = bd.moved || durMin !== bd.durMin;
-        setBlockDrag({ ...bd, durMin, moved });
+        if (durMin === bd.durMin) return;
+        setBlockDrag({ ...bd, durMin, moved: true });
       }
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      dragPointRef.current = { x: e.clientX, y: e.clientY };
+    };
+
+    // Edge-autoscroll + re-place, once per frame. Scrolling the grid under a
+    // still finger still moves the block, because applyPoint reads the (now
+    // shifted) column rects.
+    let raf = 0;
+    const tick = () => {
+      const p = dragPointRef.current;
+      const scroller = scrollRef.current;
+      if (p && scroller) {
+        const r = scroller.getBoundingClientRect();
+        let dv = 0;
+        if (p.y < r.top + EDGE_SCROLL_ZONE_PX) {
+          dv = -EDGE_SCROLL_MAX_PX * Math.min(1, (r.top + EDGE_SCROLL_ZONE_PX - p.y) / EDGE_SCROLL_ZONE_PX);
+        } else if (p.y > r.bottom - EDGE_SCROLL_ZONE_PX) {
+          dv = EDGE_SCROLL_MAX_PX * Math.min(1, (p.y - (r.bottom - EDGE_SCROLL_ZONE_PX)) / EDGE_SCROLL_ZONE_PX);
+        }
+        if (dv !== 0) scroller.scrollTop += dv;
+        applyPoint();
+      }
+      raf = requestAnimationFrame(tick);
     };
 
     const onUp = () => {
       const bd = blockDragRef.current;
       setBlockDrag(null);
+      dragPointRef.current = null;
       if (!bd) return;
       // A tap (no travel) falls through to the block's own click → open it.
       if (!bd.moved) return;
@@ -865,15 +911,37 @@ function CalendarInner() {
       });
     };
 
-    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
+    window.addEventListener("touchend", onUp);
+    window.addEventListener("touchcancel", onUp);
+    raf = requestAnimationFrame(tick);
     return () => {
-      window.removeEventListener("pointermove", onMove);
+      cancelAnimationFrame(raf);
+      window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("touchend", onUp);
+      window.removeEventListener("touchcancel", onUp);
     };
-  }, [blockDrag, days, update]);
+  }, [dragActive, days, update]);
+
+  // A single always-mounted, NON-passive touchmove listener is what actually
+  // keeps a block glued to the finger. It must exist before the drag begins:
+  // React's onTouchMove is passive (can't preventDefault), and attaching only
+  // once the drag arms leaves a frame where the first move scrolls the grid
+  // away. It no-ops unless a block is in hand, so normal scrolling is untouched.
+  useEffect(() => {
+    const onTouchMove = (e: TouchEvent) => {
+      if (!blockDragRef.current || e.touches.length !== 1) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      dragPointRef.current = { x: t.clientX, y: t.clientY };
+    };
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => window.removeEventListener("touchmove", onTouchMove);
+  }, []);
 
   // ---- planning actions ----
   const selected = useMemo(
@@ -1765,6 +1833,7 @@ function CalendarInner() {
                                 if (!el) return;
                                 const rect = el.getBoundingClientRect();
                                 const grabOffsetMin = ((e.clientY - rect.top) / HOUR_PX) * 60;
+                                dragPointRef.current = { x: e.clientX, y: e.clientY };
                                 setBlockDrag({
                                   blockId: b.masterId,
                                   mode,
@@ -1817,6 +1886,7 @@ function CalendarInner() {
                                             /* capture is best-effort */
                                           }
                                           navigator.vibrate?.(12);
+                                          dragPointRef.current = { x: sx, y: sy };
                                           setBlockDrag({
                                             blockId: b.masterId,
                                             mode: "move",
