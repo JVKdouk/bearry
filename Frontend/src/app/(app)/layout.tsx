@@ -1,5 +1,6 @@
 import { AppShell } from "@/components/AppShell";
 import { ServiceWorker } from "@/components/ServiceWorker";
+import { NotificationActions } from "@/components/NotificationActions";
 
 export default function AppGroupLayout({
   children,
@@ -10,6 +11,7 @@ export default function AppGroupLayout({
     <AppShell>
       {children}
       <ServiceWorker />
+      <NotificationActions />
     </AppShell>
   );
 }

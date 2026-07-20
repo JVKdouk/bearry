@@ -157,6 +157,19 @@ self.addEventListener("push", (event) => {
   }
 
   const title = payload.title || "Kuma";
+
+  // Action buttons ride on the reminder only when it's about a real block. A
+  // task can be completed or rescheduled; an event can only be rescheduled
+  // (it "completes" by happening). The test ping carries no block, so it shows
+  // no buttons.
+  const actions = [];
+  if (payload.blockId) {
+    if (payload.kind !== "event") {
+      actions.push({ action: "complete", title: "Mark complete" });
+    }
+    actions.push({ action: "reschedule", title: "Reschedule" });
+  }
+
   const options = {
     body: payload.body || "You have a reminder.",
     icon: "/icons/icon-192.png",
@@ -165,7 +178,12 @@ self.addEventListener("push", (event) => {
     // have a notification about shouldn't produce two.
     tag: payload.tag || "bearry-reminder",
     renotify: true,
-    data: { url: payload.url || "/today" },
+    actions,
+    data: {
+      url: payload.url || "/today",
+      blockId: payload.blockId || null,
+      kind: payload.kind || null,
+    },
   };
 
   event.waitUntil(self.registration.showNotification(title, options));
@@ -175,22 +193,49 @@ self.addEventListener("push", (event) => {
  * Clicking should land you on the thing, and should REUSE an open tab rather
  * than opening a second copy of the app — a reminder that leaves you with four
  * Kuma tabs is its own small punishment.
+ *
+ * The two action buttons take a shortcut: if a tab is already open, we hand it
+ * the action over postMessage so it runs against the live store (offline-safe,
+ * and no jarring reload) — "complete" stays in the background, "reschedule"
+ * pulls the tab to the front so you can pick a time. With nothing open, we open
+ * a window with the action in the URL and the app performs it on boot.
  */
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || "/today";
+  const data = event.notification.data || {};
+  const base = data.url || "/today";
+  const blockId = data.blockId;
+  const action = event.action; // "" for the body, else "complete" | "reschedule"
 
   event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+    (async () => {
+      const clients = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+
+      if ((action === "complete" || action === "reschedule") && blockId) {
+        for (const client of clients) {
+          client.postMessage({ type: "kuma-action", action, blockId });
+          // Reschedule needs the UI in front of you; complete can stay quiet.
+          if (action === "reschedule" && "focus" in client) await client.focus();
+          return;
+        }
+        const param = action === "complete" ? "kuma-complete" : "kuma-reschedule";
+        const sep = base.includes("?") ? "&" : "?";
+        return self.clients.openWindow(`${base}${sep}${param}=${encodeURIComponent(blockId)}`);
+      }
+
+      // Plain body tap: reuse a tab if there is one, else open.
       for (const client of clients) {
         if ("focus" in client) {
           // Navigate the existing tab, then focus it. Focusing without
           // navigating leaves you looking at whatever you were on before.
-          if ("navigate" in client) client.navigate(target).catch(() => {});
+          if ("navigate" in client) client.navigate(base).catch(() => {});
           return client.focus();
         }
       }
-      return self.clients.openWindow(target);
-    }),
+      return self.clients.openWindow(base);
+    })(),
   );
 });

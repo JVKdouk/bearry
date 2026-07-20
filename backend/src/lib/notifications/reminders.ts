@@ -223,6 +223,9 @@ export async function deliverDueReminders(now = new Date()): Promise<SweepResult
         // kind rather than a targetType that is always the same string.
         url: target.kind === "event" ? "/calendar" : "/today",
         tag: `block:${reminder.targetId}`,
+        // Drives the notification's action buttons (mark complete / reschedule).
+        blockId: reminder.targetId,
+        kind: target.kind,
       });
       result.sent += 1;
 

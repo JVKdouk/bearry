@@ -69,6 +69,14 @@ export interface PushPayload {
    * rather than stacking a second copy.
    */
   tag?: string;
+  /**
+   * The block this reminder is about. Its presence is what turns on the
+   * "Mark complete" / "Reschedule" action buttons in the service worker — a
+   * notification with no block (e.g. the test ping) shows none.
+   */
+  blockId?: string;
+  /** "event" | "task" — an event can be rescheduled but not completed. */
+  kind?: string;
 }
 
 /**
