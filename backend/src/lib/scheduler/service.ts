@@ -20,6 +20,13 @@ import type { SchedulerInput, SchedulableTask, ScheduleProposal } from "./types"
  */
 const RELEVANCE_LOOKAHEAD_DAYS = 14;
 
+/**
+ * Below this many minutes left, a task counts as done rather than scheduling a
+ * sliver. Accepting most of a task's chunks shouldn't leave a stray 4-minute
+ * block hanging around for the rounding remainder.
+ */
+const REMAINDER_FLOOR_MIN = 10;
+
 export async function planForUser(
   userId: string,
   horizonStart: Date,
@@ -49,7 +56,7 @@ export async function planForUser(
   // These reads are independent, so they go out together. Run sequentially
   // they cost a round-trip each on what is already the slowest interaction in
   // the app; the work is identical, only the waiting differs.
-  const [candidates, occupied, busyBlocks, depLinks, regions] = await Promise.all([
+  const [candidates, occupied, busyBlocks, depLinks, regions, placedAgg] = await Promise.all([
     // Schedulable candidates: actionable, unfinished, not let go. Events and
     // notes are excluded by kind rather than by inference.
     database.block.findMany({
@@ -103,13 +110,29 @@ export async function planForUser(
       where: { userId, deletedAt: null },
       select: { category: true, dayMask: true, start: true, end: true },
     }),
+
+    // How many minutes of each task are ALREADY placed as accepted plan blocks —
+    // across all time, not just this horizon, so a chunk accepted last week or
+    // next week still counts. This is what makes partial acceptance work: a task
+    // isn't "done" because it has *a* block, it's done when its blocks cover its
+    // estimate. Otherwise accepting one chunk of a six-chunk task stranded the
+    // other five forever (they were excluded as "already planned").
+    database.block.groupBy({
+      by: ["planForId"],
+      where: { userId, deletedAt: null, planForId: { not: null } },
+      _sum: { estimatedDuration: true },
+    }),
   ]);
 
   const busy = occupied.map((b) => ({ start: b.startTime!, end: b.endTime! }));
-  // Tasks with a plan block already on the calendar are done being scheduled.
-  const plannedTaskIds = new Set(
-    occupied.map((b) => b.planForId).filter((id): id is string => !!id),
-  );
+  // Minutes already committed per task by accepted plan blocks.
+  const placedByTask = new Map<string, number>();
+  for (const g of placedAgg) {
+    if (g.planForId) placedByTask.set(g.planForId, g._sum.estimatedDuration ?? 0);
+  }
+  /** What's left to schedule for a task after its accepted blocks. */
+  const remainingFor = (t: { id: string; estimatedDuration: number }) =>
+    t.estimatedDuration - (placedByTask.get(t.id) ?? 0);
 
   // Tasks the user pinned to a moment — a start time, or a deadline that
   // carries a real time of day (an import's "due 17:00", not a bare due date).
@@ -164,8 +187,11 @@ export async function planForUser(
       // Pinned to a time (start time, or an appointment-shaped deadline) — the
       // planner leaves it exactly where the user put it.
       !fixedTaskIds.has(t.id) &&
-      !plannedTaskIds.has(t.id) &&
       t.estimatedDuration > 0 &&
+      // Still has real work left after whatever's already been accepted. A fully
+      // placed task has ~zero remaining and drops out; a partially placed one
+      // stays in for its leftover.
+      remainingFor(t) >= REMAINDER_FLOOR_MIN &&
       // The relevance cutoff keeps a "plan my week" from hoovering in things
       // due months out. A hand-picked task is the user saying "this one, now" —
       // honour it whatever its deadline.
@@ -221,7 +247,9 @@ export async function planForUser(
 
   const tasks: SchedulableTask[] = schedulable.map((t) => ({
     id: t.id,
-    estimatedDuration: t.estimatedDuration,
+    // Only the leftover after accepted blocks — so re-planning a partially
+    // accepted task schedules what's missing, not the whole thing again.
+    estimatedDuration: remainingFor(t),
     deadline: t.deadline,
     priority: t.priority,
     energyDemand: t.energyDemand,
