@@ -42,7 +42,12 @@ import { SchedulePopover, type ScheduleValue } from "@/components/SchedulePopove
 import { schedulePatch } from "@/lib/schedule";
 import { ReminderPicker } from "@/components/ReminderPicker";
 import { convertLoses, convertTo, nextQuarterHour } from "@/lib/convert";
-import { fireAtFor, isOffsetUsable, rescheduleReminders } from "@/lib/reminders";
+import {
+  DEFAULT_OFFSET_MINUTES,
+  fireAtFor,
+  isOffsetUsable,
+  rescheduleReminders,
+} from "@/lib/reminders";
 import { chunkingLabel, isChunkable } from "@/lib/chunking";
 import { useAuth } from "@/store/auth";
 import { accessTo, canEdit } from "@/lib/access";
@@ -110,6 +115,16 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
    * precisely when you've stopped thinking about it.
    */
   const [draftReminders, setDraftReminders] = useState<number[]>([]);
+  /**
+   * Whether the user has managed reminders by hand this session.
+   *
+   * A timed task/event gets one reminder "at the time" by default (the thing
+   * you almost always want, and what was silently missing before). But that's a
+   * *default*, not a rule: once the user adds or removes a reminder themselves,
+   * we stop seeding — an empty list they made empty stays empty, and their
+   * choices aren't overwritten when the time later moves.
+   */
+  const [remindersTouched, setRemindersTouched] = useState(false);
 
   /**
    * Dependencies (§7.4). Stored as Link rows with `linkType: "blocks"`, where
@@ -193,6 +208,8 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   // Seed local state whenever the panel opens (or switches task).
   useEffect(() => {
     if (!open) return;
+    // A fresh open hasn't been touched yet, so default seeding is back in play.
+    setRemindersTouched(false);
     if (editingId) {
       if (!editing) return;
       const timed = editing.startTime && editing.endTime;
@@ -229,7 +246,10 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       d = dayjs(defaults.deadline);
     }
     setDraft(base);
-    setDraftReminders([]);
+    // Seed the default "at the time" reminder when the draft already has a
+    // moment to count back from (a tapped calendar slot, a supplied deadline).
+    // When it doesn't yet, applySchedule seeds it the instant a time is picked.
+    setDraftReminders(d ? [DEFAULT_OFFSET_MINUTES] : []);
     // A time supplied by the caller (tapping a calendar slot) means an event is
     // the likelier intent, so start there rather than making them switch.
     setCreateKind(defaults?.startTime ? "event" : "task");
@@ -425,6 +445,14 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
     const title = (draft.title ?? "").trim();
     if (!title) return;
 
+    // An untouched, empty picker still means "give me the default" — most
+    // relevant for an event created with no date, which only gets its real
+    // start (the next quarter hour) here at confirm time.
+    const effectiveDraft =
+      !remindersTouched && draftReminders.length === 0
+        ? [DEFAULT_OFFSET_MINUTES]
+        : draftReminders;
+
     if (createKind === "event") {
       const start = date && time
         ? date.hour(time.hour()).minute(time.minute()).second(0).millisecond(0).toDate()
@@ -441,13 +469,13 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       // An event always has a moment, even when the drawer had no date on it —
       // so reminders count back from the start it actually got, not from the
       // empty picker.
-      for (const m of usableDraftReminders(start)) {
+      for (const m of effectiveDraft.filter((x) => isOffsetUsable(start, x))) {
         create("reminder", reminderRow("block", eventId, m, start));
       }
     } else {
       const todoId = create("block", { ...draft, kind: "task", title, status: "todo", order: 0 });
       if (reminderStart) {
-        for (const m of usableDraftReminders(reminderStart)) {
+        for (const m of effectiveDraft.filter((x) => isOffsetUsable(reminderStart, x))) {
           create("reminder", reminderRow("block", todoId, m, reminderStart));
         }
       }
@@ -493,6 +521,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   }
 
   function addReminder(offsetMinutes: number) {
+    setRemindersTouched(true);
     // Before the thing exists there's no id to point at, so the choice is held
     // in the draft and written out by confirmCreate.
     if (isCreate) {
@@ -504,24 +533,13 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   }
 
   function removeReminder(id: string) {
+    setRemindersTouched(true);
     // Draft entries are keyed by their offset, since they have no row yet.
     if (isCreate) {
       setDraftReminders((prev) => prev.filter((m) => String(m) !== id));
       return;
     }
     remove("reminder", id);
-  }
-
-  /**
-   * Draft offsets that can still fire against the start the thing actually got.
-   *
-   * The picker only offers usable offsets, but the date can move afterwards —
-   * choose "1 week before" for next month, then pull the task to tomorrow, and
-   * that offset is now in the past. Writing it anyway would create a row that
-   * can never fire and gets silently retired by the server's staleness sweep.
-   */
-  function usableDraftReminders(start: Date): number[] {
-    return draftReminders.filter((m) => isOffsetUsable(start, m));
   }
 
   /** What the picker shows — real rows when editing, draft offsets when not. */
@@ -587,7 +605,25 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
 
     if (next.date !== undefined || next.time !== undefined) {
       const start = d ? (t ? d.hour(t.hour()).minute(t.minute()) : d.hour(9).minute(0)) : null;
-      rescheduleAttachedReminders(start ? start.toDate() : null);
+      const startDate = start ? start.toDate() : null;
+      rescheduleAttachedReminders(startDate);
+      // Default treatment: the first time a thing gains a moment, give it the
+      // "at the time" reminder — unless the user has already taken the wheel.
+      if (!remindersTouched) {
+        if (startDate) {
+          if (isCreate) {
+            if (draftReminders.length === 0) setDraftReminders([DEFAULT_OFFSET_MINUTES]);
+          } else if (editingId && reminders.length === 0) {
+            create("reminder", reminderRow("block", editingId, DEFAULT_OFFSET_MINUTES, startDate));
+            // The default now exists as a row; don't let a second time-change
+            // race the store and seed a duplicate before it lands.
+            setRemindersTouched(true);
+          }
+        } else if (isCreate) {
+          // Time cleared before saving — drop the auto-seeded default with it.
+          setDraftReminders([]);
+        }
+      }
     }
   }
 
@@ -605,6 +641,8 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
             setDate(null);
             setTime(null);
             rescheduleAttachedReminders(null);
+            // The auto-seeded default has nothing left to count back from.
+            if (isCreate && !remindersTouched) setDraftReminders([]);
             // A repeat rule with nothing to repeat from is dead config.
             patch({ ...schedulePatch(null, null, duration), recurrenceRule: null });
           }}
