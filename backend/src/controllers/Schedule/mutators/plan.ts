@@ -6,6 +6,9 @@ const Body = z.object({
   // Default horizon: now → +7 days. "Plan my day" passes a 1-day horizon.
   horizonStart: z.string().datetime().optional(),
   horizonEnd: z.string().datetime().optional(),
+  // Plan only these tasks (swipe-to-plan one card, or a bulk selection).
+  // Omitted / empty ⇒ plan everything schedulable in the horizon.
+  taskIds: z.array(z.string()).max(200).optional(),
 });
 
 /**
@@ -21,7 +24,9 @@ const plan: Endpoint = async (request) => {
     ? new Date(b.horizonEnd)
     : new Date(horizonStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  const proposal = await planForUser(request.user.id, horizonStart, horizonEnd);
+  const proposal = await planForUser(request.user.id, horizonStart, horizonEnd, {
+    taskIds: b.taskIds,
+  });
   return proposal;
 };
 

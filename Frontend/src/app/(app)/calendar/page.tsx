@@ -71,6 +71,13 @@ const HEADER_H = DAY_HEADER_H;
 /** Must match the track's CSS transition below. */
 const SWIPE_SETTLE_MS = 200;
 const SNAP = 15;
+/**
+ * Below this many tasks, a plan skips the AI diagnosis. A swipe-to-plan (one
+ * task) or a small batch explains itself from each block's own reason; the
+ * model round-trip is only worth it when there's enough going on to be worth
+ * narrating. Keeps AI off the hot path for the common small plan.
+ */
+const DIAGNOSE_MIN_TASKS = 6;
 
 /**
  * How many lines of title a block of this height can show.
@@ -777,7 +784,7 @@ function CalendarInner() {
     return { from: r.start.isBefore(today) ? today : r.start, to: r.end };
   }
 
-  async function runPlan(scope: "week" | "view" = "view") {
+  async function runPlan(scope: "week" | "view" = "view", taskIds?: string[]) {
     // Planning a month isn't supported, so asking for it drops back to the week.
     const forView: View = scope === "week" ? "week" : view === "month" ? "week" : view;
     if (view === "month") setView("week");
@@ -788,20 +795,34 @@ function CalendarInner() {
       const p = await api.plan({
         horizonStart: from.toISOString(),
         horizonEnd: rangeEnd.toISOString(),
+        // A subset — swipe-to-plan one card, or a bulk selection. Omitted for
+        // "plan my week", which plans everything schedulable in the horizon.
+        taskIds: taskIds && taskIds.length > 0 ? taskIds : undefined,
       });
       setProposal(p);
       setExcluded(new Set());
       setDiagnosis(null);
-      setDiagnosing(true);
       setReviewTab("plan");
 
-      // Explain the plan — especially when it's empty. This is what turns
-      // "couldn't place 21" into "you have no working hours on Saturday".
-      void api
-        .aiDiagnose({ horizonStart: from.toISOString(), horizonEnd: rangeEnd.toISOString() })
-        .then(setDiagnosis)
-        .catch(() => setDiagnosis({ headline: "", findings: [], usedAI: false }))
-        .finally(() => setDiagnosing(false));
+      // Explain the plan — especially when it's empty — but only when it's big
+      // enough to be worth a model call (see DIAGNOSE_MIN_TASKS). A one-task
+      // swipe reads its own reason off the block; diagnosing it would burn AI
+      // budget to restate what's already on screen. For the "couldn't place 21"
+      // case the count is high, so the explanation still shows.
+      const touched = new Set<string>([
+        ...p.blocks.map((b) => b.taskId),
+        ...p.unscheduled.map((u) => u.taskId),
+      ]).size;
+      if (touched >= DIAGNOSE_MIN_TASKS) {
+        setDiagnosing(true);
+        void api
+          .aiDiagnose({ horizonStart: from.toISOString(), horizonEnd: rangeEnd.toISOString() })
+          .then(setDiagnosis)
+          .catch(() => setDiagnosis({ headline: "", findings: [], usedAI: false }))
+          .finally(() => setDiagnosing(false));
+      } else {
+        setDiagnosing(false);
+      }
 
       // Nothing placed, or a phone (where 7 columns ≈ 45px each is unreadable):
       // open the agenda sheet, which carries the explanation.
@@ -813,17 +834,23 @@ function CalendarInner() {
     }
   }
 
-  // Deep link: /calendar?plan=1 (the ⚡ nav item) starts planning immediately.
+  // Deep link: /calendar?plan=1 (the ⚡ nav item) plans the whole week;
+  // ?plan=<nonce>&tasks=id,id (swipe-to-plan a card, or a bulk selection) plans
+  // just those. The `plan` value is a nonce from the caller so swiping the same
+  // task twice re-fires — keying only on `tasks` would ignore a repeat.
   const autoPlan = params.get("plan");
-  const autoRan = useRef(false);
+  const autoTasks = params.get("tasks");
+  const planKey = autoPlan ? `${autoPlan}:${autoTasks ?? ""}` : null;
+  const lastPlanKey = useRef<string | null>(null);
   useEffect(() => {
-    if (!autoPlan || autoRan.current) return;
-    autoRan.current = true;
-    // The ⚡ item means "plan my week" regardless of which view you left behind.
+    if (!planKey || lastPlanKey.current === planKey) return;
+    lastPlanKey.current = planKey;
+    // Any plan lands on the week the tasks belong to, whatever view you left.
     setView("week");
-    void runPlan("week");
+    const ids = autoTasks ? autoTasks.split(",").filter(Boolean) : undefined;
+    void runPlan("week", ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPlan]);
+  }, [planKey]);
 
   async function acceptPlan() {
     if (!proposal || selected.length === 0) return;
@@ -912,7 +939,10 @@ function CalendarInner() {
     stackedMinPx: STACKED_MIN_PX,
     hours,
     hourPx: HOUR_PX,
-    showHeader: view !== "month",
+    // Headers no longer travel inside the scrolling grid — they live in a
+    // sticky band above it (see the time-grid render), so the peek that slides
+    // in during a swipe draws bodies only. The band renders its own peek headers.
+    showHeader: false,
     untimedForDay: (day: Dayjs) => untimedByDay.get(day.format("YYYY-MM-DD")) ?? [],
     colMinWidth,
     gridHeight,
@@ -922,6 +952,28 @@ function CalendarInner() {
     tiny: tinyBlocks,
   };
 
+  // One row of day headers, sized to match the grid columns beneath it. Used
+  // three times over in the sticky header band — the current days plus the
+  // neighbours that slide in during a horizontal swipe — so it's factored out.
+  // Peek rows are inert; only the live row opens a day's untimed popover.
+  const renderHeaderRow = (rowDays: Dayjs[], interactive: boolean) => (
+    <div style={{ display: "flex", flex: 1, minWidth: 0 }}>
+      {rowDays.map((day) => (
+        <div
+          key={day.toISOString()}
+          style={{ flex: 1, minWidth: colMinWidth, borderRight: `1px solid ${SURFACE.borderSoft}` }}
+        >
+          <DayColumnHeader
+            day={day}
+            isToday={day.isSame(now, "day")}
+            untimed={untimedByDay.get(day.format("YYYY-MM-DD")) ?? []}
+            onOpenTask={interactive ? openEditTask : () => {}}
+            compact={tinyBlocks}
+          />
+        </div>
+      ))}
+    </div>
+  );
 
   const last = days[days.length - 1];
   const rangeLabel =
@@ -1113,13 +1165,57 @@ function CalendarInner() {
         </div>
       ) : (
       <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }}>
+        {/* Sticky day-header band. It's a direct child of the scroller — no
+            overflow-hidden or transformed ancestor between them — so `sticky`
+            actually pins it as the grid scrolls under. It scrolls horizontally
+            with the content (sticky only fixes the top) and mirrors the swipe's
+            translate so the headers slide with their columns, its own peek rows
+            filling in the neighbours a gesture reveals. */}
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 10,
+            display: "flex",
+            minWidth: gridMinWidth,
+            background: SURFACE.bg,
+          }}
+        >
+          <div
+            style={{
+              width: gutterW,
+              flexShrink: 0,
+              height: headerH,
+              borderRight: `1px solid ${SURFACE.borderSoft}`,
+              borderBottom: `1px solid ${SURFACE.borderSoft}`,
+            }}
+          />
+          <div style={{ flex: 1, overflow: "hidden", position: "relative", height: headerH }}>
+            <div
+              style={{
+                display: "flex",
+                transform: `translateX(${swipeDx}px)`,
+                transition: settling ? `transform ${SWIPE_SETTLE_MS}ms ease-out` : "none",
+                willChange: swipeDx !== 0 ? "transform" : undefined,
+              }}
+            >
+              <div style={{ position: "absolute", right: "100%", top: 0, width: "100%", display: "flex" }}>
+                {renderHeaderRow(prevDays, false)}
+              </div>
+              {renderHeaderRow(days, true)}
+              <div style={{ position: "absolute", left: "100%", top: 0, width: "100%", display: "flex" }}>
+                {renderHeaderRow(nextDays, false)}
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div style={{ display: "flex", minWidth: gridMinWidth }}>
           <div
             style={{
               width: gutterW,
               flexShrink: 0,
               borderRight: `1px solid ${SURFACE.borderSoft}`,
-              paddingTop: headerH,
             }}
           >
             {hours.map((h) => (
@@ -1199,14 +1295,8 @@ function CalendarInner() {
                   borderRight: `1px solid ${SURFACE.borderSoft}`,
                 }}
               >
-                <DayColumnHeader
-                  day={day}
-                  isToday={isToday}
-                  untimed={untimedByDay.get(day.format("YYYY-MM-DD")) ?? []}
-                  onOpenTask={openEditTask}
-                  compact={tinyBlocks}
-                />
-
+                {/* The day header lives in the sticky band above the grid now,
+                    not per-column, so it stays put while the grid scrolls. */}
                 <div
                   onMouseDown={(e) => onColumnMouseDown(e, day)}
                   style={{

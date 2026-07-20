@@ -21,7 +21,9 @@ import {
   FlagOutlined,
   FolderOutlined,
   RotateLeftOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
+import { useRouter } from "next/navigation";
 import { useMemo } from "react";
 import { useSelection } from "@/store/selection";
 import { useSync } from "@/store/sync";
@@ -35,6 +37,7 @@ const PRIORITIES: Priority[] = ["ASAP", "high", "medium", "low"];
 
 export function BulkBar() {
   const { message } = AntdApp.useApp();
+  const router = useRouter();
   const active = useSelection((s) => s.active);
   const ids = useSelection((s) => s.ids);
   const clear = useSelection((s) => s.clear);
@@ -65,6 +68,21 @@ export function BulkBar() {
     // as done from the user's side — say so rather than looking inert.
     message.success(bulkSummary(action, count));
     clear();
+  }
+
+  // Only unfinished tasks can be planned — an event is already fixed in time,
+  // and a done task has nothing left to schedule.
+  const plannable = selected.filter((b) => b.kind === "task" && b.status !== "done");
+
+  function planSelected() {
+    if (plannable.length === 0) return;
+    // Hand the subset to the calendar, which runs the deterministic solver over
+    // just these and reviews the result as ghost blocks. The nonce makes each
+    // request distinct so re-planning the same set fires again. AI diagnosis is
+    // gated by count on the calendar side, so a small batch stays model-free.
+    const query = `plan=${Date.now()}&tasks=${plannable.map((b) => b.id).join(",")}`;
+    clear();
+    router.push(`/calendar?${query}`);
   }
 
   const activeProjects = projects
@@ -105,6 +123,15 @@ export function BulkBar() {
       <span className="bulk-bar-count">{count} selected</span>
 
       <div className="bulk-bar-actions">
+        <button
+          className="bulk-bar-action"
+          disabled={plannable.length === 0}
+          onClick={planSelected}
+        >
+          <ThunderboltOutlined />
+          <span>Plan</span>
+        </button>
+
         <button
           className="bulk-bar-action"
           disabled={count === 0}

@@ -1,6 +1,14 @@
 "use client";
 
-import { CheckOutlined, ClockCircleOutlined, RetweetOutlined } from "@ant-design/icons";
+import {
+  CheckOutlined,
+  ClockCircleOutlined,
+  DeleteOutlined,
+  RetweetOutlined,
+  ThunderboltOutlined,
+} from "@ant-design/icons";
+import { App as AntdApp } from "antd";
+import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
 import { Pill } from "./Pill";
 import { useSync } from "@/store/sync";
@@ -16,6 +24,7 @@ import { TEXT } from "@/lib/theme";
 import { describeRepeat } from "@/lib/recurrence";
 import { useSelection } from "@/store/selection";
 import { useLongPress } from "@/lib/useLongPress";
+import { useRowSwipe, ROW_SWIPE_COMMIT_PX } from "@/lib/useRowSwipe";
 import type { Block } from "@/lib/types";
 
 // The card is the app's core object: pills on top, a bold title, a time row,
@@ -31,7 +40,10 @@ export function TaskCard({
   showDate?: boolean;
 }) {
   const update = useSync((s) => s.update);
+  const remove = useSync((s) => s.remove);
   const openEditTask = useUI((s) => s.openEditTask);
+  const { modal } = AntdApp.useApp();
+  const router = useRouter();
 
   // Bulk selection. A long-press enters selection mode; while in it, a tap
   // toggles the card instead of opening it. Subscribing to `has(id)` rather
@@ -43,11 +55,34 @@ export function TaskCard({
   const toggleSelection = useSelection((s) => s.toggle);
   const longPress = useLongPress(() => beginSelection(todo.id));
 
+  const isEventKind = todo.kind === "event";
+
+  // Swipe shortcuts: right reveals delete (confirmed first — a swipe is easy to
+  // trigger by accident and delete isn't undoable here), left plans just this
+  // task onto the week. An event is already fixed in time, so it has nothing to
+  // plan; its left side is left disabled. Off entirely while selecting, where a
+  // horizontal drag would fight the selection gesture.
+  const swipe = useRowSwipe({
+    enabled: !selectionActive,
+    onRight: () =>
+      modal.confirm({
+        title: "Delete this task?",
+        content: todo.title || "Untitled",
+        okText: "Delete",
+        okButtonProps: { danger: true },
+        cancelText: "Cancel",
+        onOk: () => remove("block", todo.id),
+      }),
+    onLeft: isEventKind
+      ? undefined
+      : () => router.push(`/calendar?plan=${Date.now()}&tasks=${todo.id}`),
+  });
+
   const projects = useCollection("project");
   const project = projects.find((p) => p.id === todo.projectId);
   const repeatLabel = describeRepeat(todo.recurrenceRule);
 
-  const isEvent = todo.kind === "event";
+  const isEvent = isEventKind;
   // An event has nothing to complete: it either hasn't happened yet or it has.
   // Treating "past" as done is the honest equivalent, and it's what stops a
   // finished meeting sitting in the list looking like an outstanding chore.
@@ -68,21 +103,103 @@ export function TaskCard({
 
   function onCardClick() {
     // While selecting, a tap toggles. A long-press that just fired also ends in
-    // a click, so it's suppressed — otherwise entering selection mode would
-    // immediately toggle the card back off.
-    if (longPress.didFire()) return;
+    // a click, and so does a swipe — both are suppressed, otherwise the gesture
+    // would also open (or toggle) the card it just acted on.
+    if (longPress.didFire() || swipe.didSwipe()) return;
     if (selectionActive) toggleSelection(todo.id);
     else openEditTask(todo.id);
   }
 
+  // One touch sequence drives both the hold (selection) and the swipe, so their
+  // handlers are merged rather than one clobbering the other.
+  const touchHandlers = {
+    onTouchStart: (e: React.TouchEvent) => {
+      longPress.handlers.onTouchStart(e);
+      swipe.handlers.onTouchStart(e);
+    },
+    onTouchMove: (e: React.TouchEvent) => {
+      longPress.handlers.onTouchMove(e);
+      swipe.handlers.onTouchMove(e);
+    },
+    onTouchEnd: () => {
+      longPress.handlers.onTouchEnd();
+      swipe.handlers.onTouchEnd();
+    },
+    onTouchCancel: () => {
+      longPress.handlers.onTouchCancel();
+      swipe.handlers.onTouchCancel();
+    },
+    onMouseDown: longPress.handlers.onMouseDown,
+    onMouseMove: longPress.handlers.onMouseMove,
+    onMouseUp: longPress.handlers.onMouseUp,
+    onMouseLeave: longPress.handlers.onMouseLeave,
+  };
+
+  const dx = swipe.dx;
+  const rightArmed = dx >= ROW_SWIPE_COMMIT_PX; // swiping right → delete
+  const leftArmed = dx <= -ROW_SWIPE_COMMIT_PX; // swiping left → plan
+
   return (
+    <div style={{ position: "relative", borderRadius: 16, overflow: "hidden" }}>
+      {/* What the swipe will do, revealed in the gap the sliding card opens up.
+          The label brightens as you cross the commit distance so a release
+          feels deliberate rather than a guess. */}
+      {dx !== 0 && (
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0 22px",
+            background: dx > 0 ? "rgba(239,68,68,0.16)" : "rgba(229,137,63,0.16)",
+          }}
+        >
+          <span
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#ef4444",
+              opacity: dx > 0 ? (rightArmed ? 1 : 0.5) : 0,
+            }}
+          >
+            <DeleteOutlined /> Delete
+          </span>
+          <span
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#e5893f",
+              opacity: dx < 0 ? (leftArmed ? 1 : 0.5) : 0,
+            }}
+          >
+            Plan <ThunderboltOutlined />
+          </span>
+        </div>
+      )}
     <div
       className={`card card-interactive${featured ? " card-featured" : ""}${
         selected ? " card-selected" : ""
       }`}
       onClick={onCardClick}
-      {...longPress.handlers}
-      style={{ padding: 16, position: "relative" }}
+      {...touchHandlers}
+      style={{
+        padding: 16,
+        position: "relative",
+        transform: `translateX(${dx}px)`,
+        transition: swipe.settling ? "transform 0.18s ease-out" : "none",
+        // We handle horizontal ourselves; hand vertical panning back to the
+        // list so scrolling through cards is never stolen by the swipe.
+        touchAction: "pan-y",
+      }}
     >
       {/* A tick in the corner while selecting, in place of nothing — the card
           border also lights up (see .card-selected), but the tick is what makes
@@ -255,6 +372,7 @@ export function TaskCard({
           {project.name}
         </div>
       )}
+    </div>
     </div>
   );
 }

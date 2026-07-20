@@ -23,7 +23,14 @@ export async function planForUser(
   userId: string,
   horizonStart: Date,
   horizonEnd: Date,
+  opts: { taskIds?: string[] } = {},
 ): Promise<ScheduleProposal> {
+  // Plan only these tasks, when asked (swipe-to-plan a single card, or a bulk
+  // selection). Everything else the user has still counts as busy/blocking —
+  // we just don't propose slots for it. An empty allow-list would mean "plan
+  // nothing", which is never the intent, so it's treated as "plan everything".
+  const onlyIds =
+    opts.taskIds && opts.taskIds.length > 0 ? new Set(opts.taskIds) : null;
   const [profile, energy, persona] = await Promise.all([
     ensureScheduleProfile(userId),
     ensureEnergyWindows(userId),
@@ -134,12 +141,17 @@ export async function planForUser(
   // to perform (birthdays, renewals). Those belong on the day, not in a block.
   const schedulable = candidates.filter(
     (t) =>
+      // Only the tasks asked for, when a subset was named.
+      (!onlyIds || onlyIds.has(t.id)) &&
       // Pinned to a time (start time, or an appointment-shaped deadline) — the
       // planner leaves it exactly where the user put it.
       !fixedTaskIds.has(t.id) &&
       !plannedTaskIds.has(t.id) &&
       t.estimatedDuration > 0 &&
-      (!t.deadline || t.deadline <= relevanceCutoff),
+      // The relevance cutoff keeps a "plan my week" from hoovering in things
+      // due months out. A hand-picked task is the user saying "this one, now" —
+      // honour it whatever its deadline.
+      (!!onlyIds || !t.deadline || t.deadline <= relevanceCutoff),
   );
 
 

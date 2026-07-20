@@ -220,7 +220,7 @@ export const api = {
     request<unknown>(`/capture/${id}/dismiss`, { method: "POST" }),
 
   // Schedule
-  plan: (body?: { horizonStart?: string; horizonEnd?: string }) =>
+  plan: (body?: { horizonStart?: string; horizonEnd?: string; taskIds?: string[] }) =>
     request<ScheduleProposal>("/schedule/plan", {
       method: "POST",
       body: body ?? {},
