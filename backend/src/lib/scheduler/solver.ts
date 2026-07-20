@@ -59,7 +59,11 @@ function atLocalMinutes(day: Date, minutes: number, tz: string): Date {
 }
 
 /** A candidate open slot with the energy level and time-block region covering it. */
-type FreeSlot = { start: Date; end: Date; energy: EnergyLevel; category: LifeArea | null };
+type FreeSlot = { start: Date; end: Date; energy: EnergyLevel; category: LifeArea | null; overtime: boolean };
+
+/** The waking envelope overtime may borrow from, in local minutes: 07:00–23:00. */
+const OVERTIME_START_MIN = 7 * 60;
+const OVERTIME_END_MIN = 23 * 60;
 
 /** Concrete intervals on `day` for the regions that pass `pred` (from dayMask + HH:MM). */
 function regionIntervalsForDay(day: Date, regions: Region[], tz: string): { start: Date; end: Date }[] {
@@ -157,7 +161,22 @@ function buildFreeSlots(input: SchedulerInput): FreeSlot[] {
     // Busy = fixed commitments ∪ protected (off) regions on this day.
     const busyForDay: FixedInterval[] = [...input.busy, ...regionIntervalsForDay(day, offRegions, tz)];
 
-    for (const win of availability) {
+    // Overtime borrows the waking hours (07:00–23:00 local) that working hours
+    // don't already cover. Off-regions (sleep/meal) still subtract as busy, so
+    // it never schedules over dinner or into the night — it just lets the
+    // evening fill up when the working day couldn't hold the week.
+    const overtimeWindows = input.overtime
+      ? subtractBusy(
+          atLocalMinutes(day, OVERTIME_START_MIN, tz),
+          atLocalMinutes(day, OVERTIME_END_MIN, tz),
+          availability,
+        )
+      : [];
+
+    for (const { win, overtime } of [
+      ...availability.map((win) => ({ win, overtime: false })),
+      ...overtimeWindows.map((win) => ({ win, overtime: true })),
+    ]) {
       let winStart = win.start;
       let winEnd = win.end;
       // Clamp to the horizon.
@@ -176,13 +195,13 @@ function buildFreeSlots(input: SchedulerInput): FreeSlot[] {
           const e = energyAt(at, input.energyWindows, tz);
           const c = categoryAt(at, availableRegions, tz);
           if (e !== runEnergy || c !== runCat) {
-            slots.push({ start: runStart, end: at, energy: runEnergy, category: runCat });
+            slots.push({ start: runStart, end: at, energy: runEnergy, category: runCat, overtime });
             runStart = at;
             runEnergy = e;
             runCat = c;
           }
         }
-        if (free.end > runStart) slots.push({ start: runStart, end: free.end, energy: runEnergy, category: runCat });
+        if (free.end > runStart) slots.push({ start: runStart, end: free.end, energy: runEnergy, category: runCat, overtime });
       }
     }
     day = zonedNextDay(day, tz);
@@ -327,7 +346,7 @@ function placeSession(
   notAfter: Date | null,
   /** The user's zone, for per-day budgets/caps. */
   tz: string,
-): { start: Date; end: Date; energy: EnergyLevel; category: LifeArea | null; refusal: Refusal } {
+): { start: Date; end: Date; energy: EnergyLevel; category: LifeArea | null; refusal: Refusal; overtime: boolean } {
   const minMs = minMinutes * MS_PER_MIN;
   const overrun = overrunBufferFor(p);
   const avoidedCap = avoidedCapFor(p);
@@ -352,11 +371,14 @@ function placeSession(
       }
       const st = dayStateFor(states, x.usableStart, p, tz);
       if (st.sessionCap === 0) return false; // e.g. weekends when opted out
-      if (st.used + minMinutes > st.budget) {
+      // Overtime is the explicit choice to exceed a normal day, so it isn't held
+      // to the daily focus budget or the session cap — otherwise the after-hours
+      // slots would exist but never be reachable once the budget was spent.
+      if (!x.s.overtime && st.used + minMinutes > st.budget) {
         refusal = refusal ?? "budget";
         return false;
       }
-      if (st.sessions + 1 > st.sessionCap) {
+      if (!x.s.overtime && st.sessions + 1 > st.sessionCap) {
         refusal = refusal ?? "sessions";
         return false;
       }
@@ -376,10 +398,13 @@ function placeSession(
     });
 
   if (feasible.length === 0) {
-    return { start: new Date(0), end: new Date(0), energy: "medium", category: null, refusal };
+    return { start: new Date(0), end: new Date(0), energy: "medium", category: null, refusal, overtime: false };
   }
 
   feasible.sort((a, b) => {
+    // Overtime is a last resort: any in-hours slot beats any after-hours one,
+    // whatever the day, so the working days fill before an evening is touched.
+    if (a.s.overtime !== b.s.overtime) return a.s.overtime ? 1 : -1;
     // Earliest day dominates (keeps deadlines safe); within a day, prefer the
     // task's own time-block region, then energy fit, then earliest start.
     const dayA = Math.floor(a.usableStart.getTime() / (MS_PER_MIN * 60 * 24));
@@ -406,7 +431,7 @@ function placeSession(
   // instead of skipping it for not being a full session, and it's why the pieces
   // come out different sizes rather than a row of identical blocks.
   const roomMin = Math.floor((slot.end.getTime() - start.getTime()) / MS_PER_MIN);
-  const budgetLeft = st.budget - st.used;
+  const budgetLeft = slot.overtime ? Number.POSITIVE_INFINITY : st.budget - st.used;
   const deadlineMin = notAfter
     ? Math.floor((notAfter.getTime() - start.getTime()) / MS_PER_MIN)
     : Number.POSITIVE_INFINITY;
@@ -434,7 +459,7 @@ function placeSession(
   if (start.getTime() > slot.start.getTime()) {
     // We started partway in (waiting on a prerequisite). Keep the earlier gap as
     // its own slot so other work can still use it.
-    const head: FreeSlot = { start: slot.start, end: start, energy: slot.energy, category: slot.category };
+    const head: FreeSlot = { start: slot.start, end: start, energy: slot.energy, category: slot.category, overtime: slot.overtime };
     if (head.end.getTime() - head.start.getTime() >= 5 * MS_PER_MIN) {
       slots.splice(slots.indexOf(slot), 0, head);
     }
@@ -442,7 +467,7 @@ function placeSession(
   if (newStart >= slot.end) slots.splice(slots.indexOf(slot), 1);
   else slot.start = newStart;
 
-  return { start, end, energy: slot.energy, category: slot.category, refusal: null };
+  return { start, end, energy: slot.energy, category: slot.category, refusal: null, overtime: slot.overtime };
 }
 
 /**
@@ -608,7 +633,7 @@ export function solve(input: SchedulerInput): ScheduleProposal {
     const willChunk = chunkable && task.estimatedDuration > maxChunkCap;
     const minChunkFloor = willChunk ? (task.minChunk ?? personaMinChunk) : task.estimatedDuration;
 
-    type Raw = { start: Date; end: Date; energy: EnergyLevel; category: LifeArea | null };
+    type Raw = { start: Date; end: Date; energy: EnergyLevel; category: LifeArea | null; overtime: boolean };
     const rawPlaced: Raw[] = [];
     let failed = false;
     let refusal: Refusal = null;
@@ -628,6 +653,7 @@ export function solve(input: SchedulerInput): ScheduleProposal {
         end: placement.end,
         energy: placement.energy,
         category: placement.category,
+        overtime: placement.overtime,
       });
       const placedMin = Math.round((placement.end.getTime() - placement.start.getTime()) / MS_PER_MIN);
       remaining -= placedMin;
@@ -641,7 +667,9 @@ export function solve(input: SchedulerInput): ScheduleProposal {
       taskId: task.id,
       start: r.start,
       end: r.end,
-      reason: reasonFor(task, r, count > 1 ? { index: i + 1, count } : null),
+      reason:
+        reasonFor(task, r, count > 1 ? { index: i + 1, count } : null) +
+        (r.overtime ? " · outside working hours" : ""),
       isChunk: count > 1,
       chunkIndex: count > 1 ? i + 1 : undefined,
       chunkCount: count > 1 ? count : undefined,

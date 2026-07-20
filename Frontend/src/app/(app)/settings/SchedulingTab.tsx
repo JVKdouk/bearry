@@ -11,6 +11,7 @@ import {
   Segmented,
   Select,
   Space,
+  Switch,
   TimePicker,
   Typography,
 } from "antd";
@@ -66,6 +67,15 @@ export function SchedulingTab() {
     else create("setting", { key: WEEK_START_KEY, value: String(value) });
   }
 
+  // Whether the planner may spill outside working hours to fit a full week.
+  const overtimeRow = settings.find((s) => s.key === "allowOvertime" && !s.deletedAt);
+  const allowOvertime = overtimeRow?.value === "1";
+  function setOvertime(on: boolean) {
+    const v = on ? "1" : "0";
+    if (overtimeRow) update("setting", overtimeRow.id, { value: v });
+    else create("setting", { key: "allowOvertime", value: v });
+  }
+
   const [regionModal, setRegionModal] = useState(false);
   const [rCategory, setRCategory] = useState<LifeArea>("work");
   const [rMask, setRMask] = useState(62); // Mon–Fri
@@ -119,6 +129,19 @@ export function SchedulingTab() {
             { label: "Monday", value: 1 },
           ]}
         />
+      </div>
+
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
+          <div>
+            <Title level={5} style={{ margin: 0 }}>Work overtime</Title>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Let the planner use evenings and weekends when a week won&rsquo;t fit in your
+              working hours. Those blocks are placed last and marked as overtime.
+            </Text>
+          </div>
+          <Switch checked={allowOvertime} onChange={setOvertime} />
+        </div>
       </div>
 
       <div>

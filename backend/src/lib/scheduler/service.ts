@@ -23,7 +23,7 @@ export async function planForUser(
   userId: string,
   horizonStart: Date,
   horizonEnd: Date,
-  opts: { taskIds?: string[]; timezone?: string } = {},
+  opts: { taskIds?: string[]; timezone?: string; overtime?: boolean } = {},
 ): Promise<ScheduleProposal> {
   // Plan only these tasks, when asked (swipe-to-plan a single card, or a bulk
   // selection). Everything else the user has still counts as busy/blocking —
@@ -243,6 +243,7 @@ export async function planForUser(
     horizonStart,
     horizonEnd,
     timezone: tz,
+    overtime: opts.overtime ?? false,
     persona,
     // Edges whose blocker is finished (or no longer exists) are dropped above,
     // so everything left here is a constraint the solver must honour.

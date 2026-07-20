@@ -220,7 +220,7 @@ export const api = {
     request<unknown>(`/capture/${id}/dismiss`, { method: "POST" }),
 
   // Schedule
-  plan: (body?: { horizonStart?: string; horizonEnd?: string; taskIds?: string[] }) =>
+  plan: (body?: { horizonStart?: string; horizonEnd?: string; taskIds?: string[]; overtime?: boolean }) =>
     request<ScheduleProposal>("/schedule/plan", {
       method: "POST",
       // Always tell the server this device's zone, so working hours and days are

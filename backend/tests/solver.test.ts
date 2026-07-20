@@ -216,3 +216,31 @@ test("working hours resolve in the user's timezone, not the server's", () => {
   // 09:00–17:00 EDT == 13:00–21:00 UTC. The block must start no earlier than 13.
   assert.ok(h >= 13 && h < 21, `started at ${out.blocks[0].start.toISOString()} (UTC hour ${h})`);
 });
+
+test("overtime fills evenings only after working hours are full", () => {
+  // One 8h working day but 12h of splittable work due that evening. Without
+  // overtime only ~part fits; with it, the rest lands after 17:00 and is marked.
+  const from = new Date(2026, 6, 20, 9, 0);
+  const to = new Date(2026, 6, 20, 23, 0);
+  const deadline = new Date(2026, 6, 20, 23, 0);
+  const mk = (ot: boolean) =>
+    solve(
+      baseInput([task("big", 600, { chunkable: true, minChunk: 30, maxChunk: 120, deadline })], {
+        horizonStart: from,
+        horizonEnd: to,
+        workingHours: { "1": [{ start: "09:00", end: "17:00" }] },
+        overtime: ot,
+      }),
+    );
+  const withOt = mk(true);
+  const withoutOt = mk(false);
+  const placedWith = withOt.blocks.reduce((s, b) => s + (b.end.getTime() - b.start.getTime()) / 60000, 0);
+  const placedWithout = withoutOt.blocks.reduce((s, b) => s + (b.end.getTime() - b.start.getTime()) / 60000, 0);
+  assert.ok(placedWith > placedWithout, "overtime should fit more than without");
+  // Something must land after 17:00 local and say so.
+  const evening = withOt.blocks.filter((b) => b.start.getHours() >= 17);
+  assert.ok(evening.length > 0, "expected a block after 17:00");
+  assert.ok(evening.every((b) => /outside working hours/.test(b.reason)));
+  // And nothing before working hours actually starts before 09:00 or after 23:00.
+  for (const b of withOt.blocks) assert.ok(b.start.getHours() >= 7 && b.end.getHours() <= 23);
+});

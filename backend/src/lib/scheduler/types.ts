@@ -69,6 +69,13 @@ export type SchedulerInput = {
    * server's. Absent falls back to UTC.
    */
   timezone?: string;
+  /**
+   * Allow scheduling outside working hours (evenings/weekends) as a last resort,
+   * so a week that won't fit inside working hours can still be crammed in. Those
+   * slots are ranked below every in-hours slot, so they're only used once the
+   * proper day is full.
+   */
+  overtime?: boolean;
   /** Minimum minutes between focus blocks (soft). */
   minBreak?: number;
   /** Longest single focus block (chunk cap fallback). */

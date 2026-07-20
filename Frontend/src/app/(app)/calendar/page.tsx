@@ -265,6 +265,9 @@ function CalendarInner() {
   }, []);
 
   const weekStartsOn = useWeekStart();
+  const settingsRows = useCollection("setting");
+  const allowOvertime =
+    settingsRows.find((s) => s.key === "allowOvertime" && !s.deletedAt)?.value === "1";
   const days = useMemo(() => daysFor(view, anchor, weekStartsOn), [anchor, view, weekStartsOn]);
 
   // The periods either side, so a swipe has something real to slide into view.
@@ -804,6 +807,8 @@ function CalendarInner() {
         // A subset — swipe-to-plan one card, or a bulk selection. Omitted for
         // "plan my week", which plans everything schedulable in the horizon.
         taskIds: taskIds && taskIds.length > 0 ? taskIds : undefined,
+        // When on, the planner may spill into evenings/weekends to fit the week.
+        overtime: allowOvertime,
       });
       setProposal(p);
       setExcluded(new Set());
