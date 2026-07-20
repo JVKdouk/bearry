@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   App as AntdApp,
@@ -82,6 +82,11 @@ const DIAGNOSE_MIN_TASKS = 6;
 // Remembers the last view (day/3day/week/month) across visits. The anchor is
 // never persisted — the calendar always opens on today.
 const CAL_VIEW_KEY = "bearry.calView";
+
+// How long a finger must rest on a block before it becomes a move rather than a
+// scroll. Long enough that swiping to scroll never trips it, short enough that a
+// deliberate hold feels responsive.
+const BLOCK_HOLD_MS = 450;
 
 /**
  * How many lines of title a block of this height can show.
@@ -216,9 +221,11 @@ function CalendarInner() {
       if (saved === "day" || saved === "3day" || saved === "week" || saved === "month") {
         return saved;
       }
-      return window.innerWidth < 768 ? "3day" : "week";
+      // First ever visit: open on the current day. A returning user's saved
+      // choice (above) always wins — this is only the starting point.
+      return "day";
     }
-    return "week";
+    return "day";
   });
   // Persist the chosen view so the next visit reopens at the same zoom. The
   // anchor is deliberately not persisted — see above.
@@ -255,6 +262,34 @@ function CalendarInner() {
   // Set true when a drag actually moved something, so the click that follows
   // pointerup opens nothing.
   const suppressBlockClickRef = useRef(false);
+
+  // Touch move is deliberate: a finger has to press-and-hold a block before it
+  // becomes draggable, so an ordinary swipe scrolls the grid instead of dragging
+  // a block by accident. These track the pending hold until it's promoted (or a
+  // small movement / lift cancels it).
+  const holdTimer = useRef<number | null>(null);
+  const holdStart = useRef<{ x: number; y: number } | null>(null);
+  const cancelHold = useCallback(() => {
+    if (holdTimer.current != null) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    holdStart.current = null;
+  }, []);
+
+  // A coarse pointer (finger) gets press-and-hold-to-move and NO right-click
+  // menu; a fine pointer (mouse) keeps click-drag and the context menu. Resolved
+  // from the media query rather than screen size so a hybrid device is judged by
+  // its actual primary input.
+  const [coarsePointer, setCoarsePointer] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(pointer: coarse)");
+    const sync = () => setCoarsePointer(mq.matches);
+    sync();
+    mq.addEventListener?.("change", sync);
+    return () => mq.removeEventListener?.("change", sync);
+  }, []);
 
   // ---- planning state ----
   const [proposal, setProposal] = useState<ScheduleProposal | null>(null);
@@ -1743,14 +1778,77 @@ function CalendarInner() {
                             return (
                               <Dropdown
                                 key={b.id}
-                                trigger={["contextMenu"]}
+                                trigger={coarsePointer ? [] : ["contextMenu"]}
                                 menu={{ items: blockContextItems(b) }}
                               >
                               <div
                                 data-block="event"
                                 title={`${b.start.format("HH:mm")}–${b.end.format("HH:mm")}  ${b.title}`}
                                 onMouseDown={(e) => e.stopPropagation()}
-                                onPointerDown={draggable ? startBlockDrag("move") : undefined}
+                                // Mouse/pen: drag starts immediately. Finger: a plain
+                                // drag must scroll, so a move only begins after a short
+                                // press-and-hold (below); the timer is armed here and
+                                // cancelled by a small slide or an early lift.
+                                onPointerDown={
+                                  !draggable
+                                    ? undefined
+                                    : (e) => {
+                                        if (e.pointerType !== "touch") {
+                                          startBlockDrag("move")(e);
+                                          return;
+                                        }
+                                        e.stopPropagation();
+                                        const target = e.currentTarget;
+                                        const pointerId = e.pointerId;
+                                        const sx = e.clientX;
+                                        const sy = e.clientY;
+                                        cancelHold();
+                                        holdStart.current = { x: sx, y: sy };
+                                        holdTimer.current = window.setTimeout(() => {
+                                          holdTimer.current = null;
+                                          const el = target.closest("[data-block='event']");
+                                          if (!el) return;
+                                          const rect = el.getBoundingClientRect();
+                                          const grabOffsetMin =
+                                            ((sy - rect.top) / HOUR_PX) * 60;
+                                          try {
+                                            target.setPointerCapture(pointerId);
+                                          } catch {
+                                            /* capture is best-effort */
+                                          }
+                                          navigator.vibrate?.(12);
+                                          setBlockDrag({
+                                            blockId: b.masterId,
+                                            mode: "move",
+                                            grabOffsetMin,
+                                            dayIdx: days.indexOf(day),
+                                            startMin:
+                                              b.start.hour() * 60 + b.start.minute(),
+                                            durMin: Math.max(
+                                              SNAP,
+                                              b.end.diff(b.start, "minute"),
+                                            ),
+                                            moved: false,
+                                          });
+                                        }, BLOCK_HOLD_MS);
+                                      }
+                                }
+                                onPointerMove={(e) => {
+                                  if (holdTimer.current == null || !holdStart.current)
+                                    return;
+                                  const dx = e.clientX - holdStart.current.x;
+                                  const dy = e.clientY - holdStart.current.y;
+                                  // Moved before the hold matured → it's a scroll, not a
+                                  // grab. Let go and let the grid scroll.
+                                  if (Math.hypot(dx, dy) > 10) cancelHold();
+                                }}
+                                onPointerUp={cancelHold}
+                                onPointerCancel={cancelHold}
+                                // Finger long-press would otherwise raise the OS text
+                                // menu; here the hold means "move", so swallow it.
+                                onContextMenu={
+                                  coarsePointer ? (e) => e.preventDefault() : undefined
+                                }
                                 role="button"
                                 tabIndex={0}
                                 aria-label={`${b.title}, ${b.start.format("HH:mm")} to ${b.end.format("HH:mm")}`}
@@ -1774,9 +1872,11 @@ function CalendarInner() {
                                   position: "absolute",
                                   top,
                                   height: shownHeight,
-                                  // Dragging a block claims the gesture (so touch doesn't
-                                  // scroll the grid out from under it); a still block pans.
-                                  touchAction: draggable ? "none" : "pan-y",
+                                  // Only an actively-dragging block claims the gesture;
+                                  // otherwise a finger always scrolls the grid. On touch
+                                  // the drag begins after a press-and-hold, at which point
+                                  // this flips to "none" and captures the move.
+                                  touchAction: dragging ? "none" : "pan-y",
                                   // Hug the column edges — a slim 2px inset left, ~1px
                                   // right — so a block claims almost the whole slot
                                   // width rather than floating in a wide margin. The
@@ -1866,7 +1966,12 @@ function CalendarInner() {
                             and a sliver has no room for a handle. */}
                                 {draggable && shownHeight >= STACKED_MIN_PX && (
                                   <div
-                                    onPointerDown={startBlockDrag("resize")}
+                                    // Resize is a mouse/pen affordance only — a finger
+                                    // can't resize (it scrolls over this strip instead).
+                                    onPointerDown={(e) => {
+                                      if (e.pointerType === "touch") return;
+                                      startBlockDrag("resize")(e);
+                                    }}
                                     onClick={(e) => e.stopPropagation()}
                                     aria-hidden
                                     style={{
@@ -1876,7 +1981,7 @@ function CalendarInner() {
                                       bottom: 0,
                                       height: 10,
                                       cursor: "ns-resize",
-                                      touchAction: "none",
+                                      touchAction: "pan-y",
                                       display: "flex",
                                       justifyContent: "center",
                                       alignItems: "flex-end",
