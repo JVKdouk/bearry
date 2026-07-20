@@ -177,3 +177,18 @@ test("a due-by task is never scheduled after its deadline", () => {
     assert.ok(b.end.getTime() <= deadline.getTime(), `chunk ends ${b.end} after the deadline`);
   }
 });
+
+test("a splittable task sizes pieces to the gap instead of a fixed session length", () => {
+  // A 200-min splittable task whose ideal session is 90 but can go as small as
+  // 20. Monday has only a 60-min window (09:00–10:00); the piece placed there
+  // must fill that gap (<=60), not be skipped for not being a full 90 — the fix
+  // that lets a task cram a smaller opening with a fractional piece.
+  const tasks = [task("t", 200, { chunkable: true, minChunk: 20, maxChunk: 90 })];
+  const busy = [{ start: new Date(2026, 6, 20, 10, 0), end: new Date(2026, 6, 20, 23, 0) }];
+  const out = solve(baseInput(tasks, { busy }));
+  const monday = out.blocks
+    .filter((b) => b.taskId === "t" && b.start.getDate() === 20)
+    .map((b) => Math.round((b.end.getTime() - b.start.getTime()) / 60000));
+  assert.ok(monday.length > 0, "should place a piece in Monday's 60-min window");
+  for (const m of monday) assert.ok(m <= 60, `Monday piece ${m}m overflowed the 60-min gap`);
+});

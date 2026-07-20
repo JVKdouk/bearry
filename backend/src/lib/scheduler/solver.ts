@@ -242,32 +242,6 @@ function reasonFor(
   return `${time} — ${why}.`;
 }
 
-/**
- * Compute the chunk sizes for a task. A chunkable task is split into pieces of at
- * most `maxChunk` (or `maxFocus`), no smaller than `minChunk`.
- */
-function chunkSizes(task: SchedulableTask, sessionLength: number, personaMin: number): number[] {
-  const cap = Math.min(task.maxChunk ?? sessionLength, sessionLength);
-  if (!isChunkable(task.chunkable, task.estimatedDuration) || task.estimatedDuration <= cap) {
-    return [task.estimatedDuration];
-  }
-  // The task's own floor wins if it set one; otherwise the persona decides how
-  // small a fragment is still worth the cost of starting.
-  const min = task.minChunk ?? personaMin;
-  const sizes: number[] = [];
-  let remaining = task.estimatedDuration;
-  while (remaining > 0) {
-    const piece = Math.min(cap, remaining);
-    if (piece < min && sizes.length > 0) {
-      sizes[sizes.length - 1] += piece; // fold a tiny tail into the previous piece
-    } else {
-      sizes.push(piece);
-    }
-    remaining -= piece;
-  }
-  return sizes;
-}
-
 /** Per-day running totals — this is what stops the calendar being carpeted. */
 type DayState = {
   /** Minutes of work already committed on this day. */
@@ -326,7 +300,10 @@ function avoidedCapFor(p: Persona): number {
  */
 function placeSession(
   task: SchedulableTask,
-  minutes: number,
+  /** Smallest piece worth placing here — a slot must hold at least this. */
+  minMinutes: number,
+  /** Ideal piece — the placed block fills the slot up to this, no more. */
+  maxMinutes: number,
   slots: FreeSlot[],
   states: Map<string, DayState>,
   p: Persona,
@@ -335,7 +312,7 @@ function placeSession(
   /** Nothing may finish after this — a due-by task's own deadline. */
   notAfter: Date | null,
 ): { start: Date; end: Date; energy: EnergyLevel; category: LifeArea | null; refusal: Refusal } {
-  const needMs = minutes * MS_PER_MIN;
+  const minMs = minMinutes * MS_PER_MIN;
   const overrun = overrunBufferFor(p);
   const avoidedCap = avoidedCapFor(p);
   let refusal: Refusal = null;
@@ -348,18 +325,18 @@ function placeSession(
       return { s, usableStart, room: s.end.getTime() - usableStart.getTime() };
     })
     .filter((x) => {
-      if (x.room < needMs) return false;
+      if (x.room < minMs) return false;
       // A due-by task earns nothing from work placed after it's due, so its
       // deadline is a hard ceiling. Without this the planner would fill a
       // 15h task onto the weekend past a Friday deadline — technically busy,
       // practically late.
-      if (notAfter && x.usableStart.getTime() + needMs > notAfter.getTime()) {
+      if (notAfter && x.usableStart.getTime() + minMs > notAfter.getTime()) {
         refusal = refusal ?? "deadline";
         return false;
       }
       const st = dayStateFor(states, x.usableStart, p);
       if (st.sessionCap === 0) return false; // e.g. weekends when opted out
-      if (st.used + minutes > st.budget) {
+      if (st.used + minMinutes > st.budget) {
         refusal = refusal ?? "budget";
         return false;
       }
@@ -405,9 +382,22 @@ function placeSession(
 
   const slot = feasible[0].s;
   const start = new Date(feasible[0].usableStart);
+  const st = dayStateFor(states, start, p);
+
+  // Size the piece to fill what's actually here — up to the ideal max, but never
+  // past the slot's room, the day's remaining budget, or the deadline. This is
+  // what lets a splittable task drop a 120-minute piece into a 120-minute gap
+  // instead of skipping it for not being a full session, and it's why the pieces
+  // come out different sizes rather than a row of identical blocks.
+  const roomMin = Math.floor((slot.end.getTime() - start.getTime()) / MS_PER_MIN);
+  const budgetLeft = st.budget - st.used;
+  const deadlineMin = notAfter
+    ? Math.floor((notAfter.getTime() - start.getTime()) / MS_PER_MIN)
+    : Number.POSITIVE_INFINITY;
+  const minutes = Math.max(minMinutes, Math.min(maxMinutes, roomMin, budgetLeft, deadlineMin));
+  const needMs = minutes * MS_PER_MIN;
   const end = new Date(start.getTime() + needMs);
 
-  const st = dayStateFor(states, start, p);
   st.used += minutes;
   st.sessions += 1;
   st.sinceLongBreak += 1;
@@ -584,39 +574,63 @@ export function solve(input: SchedulerInput): ScheduleProposal {
       continue;
     }
 
-    const sizes = chunkSizes(task, sessionLength, personaMinChunk);
     // A due-by task earns nothing from work scheduled after it's due, so cap
     // placement at its deadline. Overdue tasks (deadline already past) are the
     // exception — there's no future deadline to hold to, so place them ASAP.
     const deadlineCap =
       task.deadline && task.deadline.getTime() > now.getTime() ? task.deadline : null;
-    const placedForTask: ScheduledBlock[] = [];
+
+    // Greedy variable fill. A splittable task drops one piece at a time into the
+    // best slot, each sized to fill that slot (up to a session's worth), rather
+    // than pre-cutting equal pieces that then can't fit a smaller gap — the trap
+    // that left an open afternoon unused because a 210-minute gap, split by an
+    // energy boundary into 90 + 120, took no 125-minute chunk. A non-splittable
+    // task is one atomic piece: fit it whole or not at all.
+    const chunkable = isChunkable(task.chunkable, task.estimatedDuration);
+    const maxChunkCap = Math.min(task.maxChunk ?? sessionLength, sessionLength);
+    const willChunk = chunkable && task.estimatedDuration > maxChunkCap;
+    const minChunkFloor = willChunk ? (task.minChunk ?? personaMinChunk) : task.estimatedDuration;
+
+    type Raw = { start: Date; end: Date; energy: EnergyLevel; category: LifeArea | null };
+    const rawPlaced: Raw[] = [];
     let failed = false;
     let refusal: Refusal = null;
-
-    for (let i = 0; i < sizes.length; i++) {
-      // Later chunks of the same task must also follow the earlier ones.
-      const floor = placedForTask.length > 0 ? placedForTask.at(-1)!.end : notBefore;
-      const placement = placeSession(task, sizes[i], slots, dayStates, p, floor, deadlineCap);
+    let remaining = task.estimatedDuration;
+    let floor = notBefore;
+    for (let guard = 0; remaining > 0 && guard < 500; guard++) {
+      const maxSize = willChunk ? Math.min(maxChunkCap, remaining) : remaining;
+      const minSize = willChunk ? Math.min(minChunkFloor, remaining) : remaining;
+      const placement = placeSession(task, minSize, maxSize, slots, dayStates, p, floor, deadlineCap);
       if (placement.refusal !== null || placement.end.getTime() === 0) {
         failed = true;
         refusal = placement.refusal;
         break;
       }
-      placedForTask.push({
-        taskId: task.id,
+      rawPlaced.push({
         start: placement.start,
         end: placement.end,
-        reason: reasonFor(task, { ...placement }, sizes.length > 1 ? { index: i + 1, count: sizes.length } : null),
-        isChunk: sizes.length > 1,
-        chunkIndex: sizes.length > 1 ? i + 1 : undefined,
-        chunkCount: sizes.length > 1 ? sizes.length : undefined,
+        energy: placement.energy,
+        category: placement.category,
       });
+      const placedMin = Math.round((placement.end.getTime() - placement.start.getTime()) / MS_PER_MIN);
+      remaining -= placedMin;
+      floor = placement.end;
+      if (placedMin <= 0) break; // safety: never loop on a zero-length placement
     }
 
-    const chunkable = isChunkable(task.chunkable, task.estimatedDuration);
+    // Now the piece count is known, so each block can say "3 of 7".
+    const count = rawPlaced.length;
+    const placedForTask: ScheduledBlock[] = rawPlaced.map((r, i) => ({
+      taskId: task.id,
+      start: r.start,
+      end: r.end,
+      reason: reasonFor(task, r, count > 1 ? { index: i + 1, count } : null),
+      isChunk: count > 1,
+      chunkIndex: count > 1 ? i + 1 : undefined,
+      chunkCount: count > 1 ? count : undefined,
+    }));
 
-    if (failed && chunkable && placedForTask.length > 0) {
+    if (failed && willChunk && placedForTask.length > 0) {
       // "Split across sittings" means spread it — so keep the sittings that
       // found a home and report the shortfall, instead of throwing away hours
       // that fit because the last ones didn't. Dropping the whole task is what
@@ -624,11 +638,7 @@ export function solve(input: SchedulerInput): ScheduleProposal {
       blocks.push(...placedForTask);
       const last = placedForTask.at(-1);
       if (last) finishedAt.set(task.id, last.end);
-      const placedMin = placedForTask.reduce(
-        (n, b) => n + Math.round((b.end.getTime() - b.start.getTime()) / MS_PER_MIN),
-        0,
-      );
-      const remaining = Math.max(0, task.estimatedDuration - placedMin);
+      const placedMin = task.estimatedDuration - remaining;
       unscheduled.push({
         taskId: task.id,
         reason: `scheduled ${hoursLabel(placedMin)} of ${hoursLabel(task.estimatedDuration)} — the last ${hoursLabel(remaining)} ${partialShortfall(refusal)}`,
