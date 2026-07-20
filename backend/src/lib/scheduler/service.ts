@@ -7,6 +7,7 @@
 
 import database from "@/core/database";
 import { solve } from "./solver";
+import { isFixedInTime, fixedInterval } from "./timedTask";
 import { ensureScheduleProfile, ensureEnergyWindows } from "./defaults";
 import { loadPersona } from "./persona";
 import type { SchedulerInput, SchedulableTask, ScheduleProposal } from "./types";
@@ -102,6 +103,22 @@ export async function planForUser(
     occupied.map((b) => b.planForId).filter((id): id is string => !!id),
   );
 
+  // Tasks the user pinned to a moment — a start time, or a deadline that
+  // carries a real time of day (an import's "due 17:00", not a bare due date).
+  // The planner must never relocate these; it excludes them from scheduling and
+  // treats them as busy at their own time. Without this a task with a defined
+  // time was floated into a random slot this week merely because it wasn't done.
+  const tz = profile.timezone || "UTC";
+  const fixedTaskIds = new Set<string>();
+  for (const t of candidates) {
+    if (!isFixedInTime(t, tz)) continue;
+    fixedTaskIds.add(t.id);
+    const interval = fixedInterval(t, tz);
+    if (interval && interval.start < horizonEnd && interval.end > horizonStart) {
+      busy.push(interval);
+    }
+  }
+
   // Only tasks that are actually *relevant* to this horizon are candidates.
   // The solver is a greedy fill — it places every task that fits — so without
   // this it happily packs leftover space with things due months away (a
@@ -117,7 +134,9 @@ export async function planForUser(
   // to perform (birthdays, renewals). Those belong on the day, not in a block.
   const schedulable = candidates.filter(
     (t) =>
-      !(t.startTime && t.endTime) &&
+      // Pinned to a time (start time, or an appointment-shaped deadline) — the
+      // planner leaves it exactly where the user put it.
+      !fixedTaskIds.has(t.id) &&
       !plannedTaskIds.has(t.id) &&
       t.estimatedDuration > 0 &&
       (!t.deadline || t.deadline <= relevanceCutoff),
