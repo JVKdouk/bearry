@@ -9,6 +9,7 @@ import {
   CheckCircleOutlined,
   FieldTimeOutlined,
   PlusOutlined,
+  SettingOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { TaskCard } from "@/components/TaskCard";
@@ -52,6 +53,7 @@ function ListsInner() {
     [allBlocks],
   );
   const openCreateTask = useUI((s) => s.openCreateTask);
+  const openEditList = useUI((s) => s.openEditList);
   const listViews = useUI((s) => s.listViews);
   const setListView = useUI((s) => s.setListView);
 
@@ -122,6 +124,17 @@ function ListsInner() {
                 ),
               }))}
             />
+          )}
+          {/* List settings live here now (moved off the cramped sidebar gear):
+              a real, header-sized target on the page for the list you're in. */}
+          {project && !readOnly && (
+            <Tooltip title="List settings">
+              <Button
+                aria-label="List settings"
+                icon={<SettingOutlined />}
+                onClick={() => openEditList(project.id)}
+              />
+            </Tooltip>
           )}
           {!readOnly && (
             <Button type="primary" icon={<PlusOutlined />} onClick={addTask}>

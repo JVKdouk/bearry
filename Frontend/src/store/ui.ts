@@ -27,6 +27,14 @@ interface UIState {
   navDrawerOpen: boolean;
   setNavDrawer: (v: boolean) => void;
 
+  // Create/edit-a-list drawer. Lifted out of the sidebar so it can be opened
+  // from the list page header too (editingListId=null => create mode).
+  listDrawerOpen: boolean;
+  editingListId: string | null;
+  openCreateList: () => void;
+  openEditList: (id: string) => void;
+  closeListDrawer: () => void;
+
   // Per-list layout preference (persisted to localStorage, keyed by list id
   // or the special "all" / "none" pseudo-lists).
   listViews: Record<string, ListView>;
@@ -75,6 +83,12 @@ export const useUI = create<UIState>((set, get) => ({
 
   navDrawerOpen: false,
   setNavDrawer: (v) => set({ navDrawerOpen: v }),
+
+  listDrawerOpen: false,
+  editingListId: null,
+  openCreateList: () => set({ listDrawerOpen: true, editingListId: null }),
+  openEditList: (id) => set({ listDrawerOpen: true, editingListId: id }),
+  closeListDrawer: () => set({ listDrawerOpen: false }),
 
   listViews: loadListViews(),
   setListView: (listKey, view) => {

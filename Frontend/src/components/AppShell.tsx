@@ -52,6 +52,11 @@ const TaskDetail = dynamic(() => import("./TaskDetail").then((m) => m.TaskDetail
   ssr: false,
 });
 
+// Lifted here (from the sidebar) so the list page header can open it too.
+const ListDrawer = dynamic(() => import("./ListDrawer").then((m) => m.ListDrawer), {
+  ssr: false,
+});
+
 const PRIMARY = [
   { key: "/today", icon: <SunOutlined />, label: "Today" },
   { key: "/lists", icon: <UnorderedListOutlined />, label: "Lists" },
@@ -159,6 +164,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const openCreateTask = useUI((s) => s.openCreateTask);
   const secondaryCollapsed = useUI((s) => s.secondaryCollapsed);
   const planOpen = useUI((s) => s.planOpen);
+  const listDrawerOpen = useUI((s) => s.listDrawerOpen);
+  const editingListId = useUI((s) => s.editingListId);
+  const closeListDrawer = useUI((s) => s.closeListDrawer);
   const pull = useSync((s) => s.pull);
   const integrations = useIntegrations((s) => s.list);
   const loadIntegrations = useIntegrations((s) => s.load);
@@ -745,6 +753,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {isMobile && <BottomNav />}
       <BulkBar />
+      <ListDrawer
+        open={listDrawerOpen}
+        projectId={editingListId}
+        onClose={closeListDrawer}
+        isMobile={isMobile}
+        onCreated={(id) => router.push(`/lists?list=${id}`)}
+      />
     </div>
   );
 }

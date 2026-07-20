@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import dynamic from "next/dynamic";
+import { useMemo } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Button, Tooltip } from "antd";
 import {
@@ -18,11 +17,7 @@ import { useCollection } from "@/store/hooks";
 // that every page pays for. It only renders when a list is created or edited.
 import { ListIcon } from "@/components/ListIcon";
 import { UsergroupAddOutlined } from "@ant-design/icons";
-
-const ListDrawer = dynamic(
-  () => import("@/components/ListDrawer").then((m) => m.ListDrawer),
-  { ssr: false },
-);
+import { useUI } from "@/store/ui";
 
 function Row({
   active,
@@ -126,11 +121,9 @@ export function SidebarLists({ onNavigate }: { onNavigate?: () => void }) {
   const blocks = useCollection("block");
   const memberships = useCollection("projectMember");
 
-  // Creating and editing both open the same drawer: a list you just made and a
-  // list you're fixing want the same controls, and two surfaces is how the two
-  // drift. `null` id means create.
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  // The create/edit drawer lives in the app shell now, so it can also be opened
+  // from the list page header. The sidebar just triggers "create".
+  const openCreateList = useUI((s) => s.openCreateList);
 
   // Lists that involve other people, either shared to me or ones I own that
   // have members. A single dim people-icon marks them in the rail.
@@ -174,13 +167,7 @@ export function SidebarLists({ onNavigate }: { onNavigate?: () => void }) {
   };
 
   function openCreate() {
-    setEditingId(null);
-    setDrawerOpen(true);
-  }
-
-  function openSettings(id: string) {
-    setEditingId(id);
-    setDrawerOpen(true);
+    openCreateList();
   }
 
   return (
@@ -270,7 +257,6 @@ export function SidebarLists({ onNavigate }: { onNavigate?: () => void }) {
               }
               count={counts.byProject.get(p.id)}
               onClick={() => go(`/lists?list=${p.id}`)}
-              onSettings={() => openSettings(p.id)}
             />
           );
         })}
@@ -296,14 +282,6 @@ export function SidebarLists({ onNavigate }: { onNavigate?: () => void }) {
           </button>
         )}
       </div>
-
-      <ListDrawer
-        open={drawerOpen}
-        projectId={editingId}
-        onClose={() => setDrawerOpen(false)}
-        isMobile={!!onNavigate}
-        onCreated={(id) => go(`/lists?list=${id}`)}
-      />
     </div>
   );
 }

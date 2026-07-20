@@ -89,29 +89,43 @@ export function BulkBar() {
     .filter((p) => !p.archived)
     .sort((a, b) => a.order - b.order);
 
+  // Menu rows put the icon in a fixed-width column so the label always starts at
+  // the same place, whatever the icon is — an antd glyph, a Lucide icon or an
+  // emoji. Using antd's own `icon` slot let icons of different widths push the
+  // text around, which is what read as "inconsistent".
+  const menuRow = (icon: React.ReactNode, text: React.ReactNode) => (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+      <span
+        style={{
+          width: 18,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        {icon}
+      </span>
+      {text}
+    </span>
+  );
+
   const moveItems = [
     {
       key: "__none__",
-      label: "No list",
-      icon: <FolderOutlined />,
+      label: menuRow(<FolderOutlined />, "No list"),
       onClick: () => apply({ type: "move", projectId: null }),
     },
     ...activeProjects.map((p) => ({
       key: p.id,
-      label: p.name,
-      icon: <ListIcon icon={p.icon} color={p.color} size={14} />,
+      label: menuRow(<ListIcon icon={p.icon} color={p.color} size={14} />, p.name),
       onClick: () => apply({ type: "move", projectId: p.id }),
     })),
   ];
 
   const priorityItems = PRIORITIES.map((p) => ({
     key: p,
-    label: (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <FlagOutlined style={{ color: PRIORITY_COLOR[p] }} />
-        {PRIORITY_LABEL[p]}
-      </span>
-    ),
+    label: menuRow(<FlagOutlined style={{ color: PRIORITY_COLOR[p] }} />, PRIORITY_LABEL[p]),
     onClick: () => apply({ type: "priority", priority: p }),
   }));
 
