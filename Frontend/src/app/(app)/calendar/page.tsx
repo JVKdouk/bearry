@@ -25,7 +25,7 @@ import {
   UndoOutlined,
 } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
-import isoWeek from "dayjs/plugin/isoWeek";
+import { startOfWeek, endOfWeek, useWeekStart, type WeekStart } from "@/lib/week";
 import { api, errText } from "@/lib/api";
 import { useCollection } from "@/store/hooks";
 import { useSync } from "@/store/sync";
@@ -47,8 +47,6 @@ import {
 } from "@/lib/swipe";
 import { untimedDayKey } from "@/lib/untimed";
 import type { Diagnosis, FindingAction, ScheduledBlock, ScheduleProposal, Block as BlockRow } from "@/lib/types";
-
-dayjs.extend(isoWeek);
 
 const DAY_START = 0;
 const DAY_END = 23;
@@ -93,19 +91,19 @@ function titleLines(heightPx: number, tiny: boolean): number {
 }
 
 /** The days a view shows for a given anchor. */
-function daysFor(view: View, anchor: Dayjs): Dayjs[] {
+function daysFor(view: View, anchor: Dayjs, weekStartsOn: WeekStart): Dayjs[] {
   if (view === "day") return [anchor.startOf("day")];
   if (view === "3day")
     return Array.from({ length: 3 }, (_, i) => anchor.startOf("day").add(i, "day"));
   if (view === "month") {
     // Pad to whole weeks so the grid is rectangular and weekday columns line
     // up; the out-of-month days are rendered dimmed rather than blank.
-    const first = anchor.startOf("month").startOf("isoWeek");
-    const last = anchor.endOf("month").endOf("isoWeek");
+    const first = startOfWeek(anchor.startOf("month"), weekStartsOn);
+    const last = endOfWeek(anchor.endOf("month"), weekStartsOn);
     const n = last.diff(first, "day") + 1;
     return Array.from({ length: n }, (_, i) => first.add(i, "day"));
   }
-  const start = anchor.startOf("isoWeek");
+  const start = startOfWeek(anchor, weekStartsOn);
   return Array.from({ length: 7 }, (_, i) => start.add(i, "day"));
 }
 
@@ -266,11 +264,18 @@ function CalendarInner() {
     return () => clearInterval(t);
   }, []);
 
-  const days = useMemo(() => daysFor(view, anchor), [anchor, view]);
+  const weekStartsOn = useWeekStart();
+  const days = useMemo(() => daysFor(view, anchor, weekStartsOn), [anchor, view, weekStartsOn]);
 
   // The periods either side, so a swipe has something real to slide into view.
-  const prevDays = useMemo(() => daysFor(view, shiftAnchor(view, anchor, -1)), [anchor, view]);
-  const nextDays = useMemo(() => daysFor(view, shiftAnchor(view, anchor, 1)), [anchor, view]);
+  const prevDays = useMemo(
+    () => daysFor(view, shiftAnchor(view, anchor, -1), weekStartsOn),
+    [anchor, view, weekStartsOn],
+  );
+  const nextDays = useMemo(
+    () => daysFor(view, shiftAnchor(view, anchor, 1), weekStartsOn),
+    [anchor, view, weekStartsOn],
+  );
 
   const step = (dir: 1 | -1) => setAnchor((a) => shiftAnchor(view, a, dir));
 
@@ -748,7 +753,7 @@ function CalendarInner() {
     if (v === "3day")
       return { start: a.startOf("day"), end: a.startOf("day").add(2, "day").endOf("day") };
     if (v === "month") return { start: a.startOf("month"), end: a.endOf("month") };
-    return { start: a.startOf("isoWeek"), end: a.endOf("isoWeek") };
+    return { start: startOfWeek(a, weekStartsOn), end: endOfWeek(a, weekStartsOn) };
   }
 
   /**
@@ -772,9 +777,10 @@ function CalendarInner() {
     const today = dayjs();
 
     if (scope === "week") {
-      const weekStart = today.startOf("isoWeek");
+      const weekStart = startOfWeek(today, weekStartsOn);
       const isWeekend = today.day() === 6 || today.day() === 0;
-      const to = (isWeekend ? weekStart.add(1, "week") : weekStart).endOf("isoWeek");
+      const base = isWeekend ? weekStart.add(1, "week") : weekStart;
+      const to = endOfWeek(base, weekStartsOn);
       return { from: today, to };
     }
 

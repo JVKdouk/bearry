@@ -8,6 +8,7 @@ import {
   Empty,
   Form,
   Modal,
+  Segmented,
   Select,
   Space,
   TimePicker,
@@ -17,6 +18,7 @@ import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useCollection } from "@/store/hooks";
 import { useSync } from "@/store/sync";
+import { WEEK_START_KEY } from "@/lib/week";
 import {
   DAY_LABELS,
   LIFE_AREAS,
@@ -51,8 +53,18 @@ export function SchedulingTab() {
   const { message } = AntdApp.useApp();
   const regions = useCollection("blockRegion");
   const energy = useCollection("energyWindow");
+  const settings = useCollection("setting");
   const create = useSync((s) => s.create);
+  const update = useSync((s) => s.update);
   const remove = useSync((s) => s.remove);
+
+  // Which day a week starts on — a plain synced setting, defaulting to Sunday.
+  const weekStartRow = settings.find((s) => s.key === WEEK_START_KEY && !s.deletedAt);
+  const weekStartsOn = weekStartRow?.value === "1" ? 1 : 0;
+  function setWeekStart(value: 0 | 1) {
+    if (weekStartRow) update("setting", weekStartRow.id, { value: String(value) });
+    else create("setting", { key: WEEK_START_KEY, value: String(value) });
+  }
 
   const [regionModal, setRegionModal] = useState(false);
   const [rCategory, setRCategory] = useState<LifeArea>("work");
@@ -92,6 +104,23 @@ export function SchedulingTab() {
 
   return (
     <Space direction="vertical" size="large" style={{ width: "100%" }}>
+      <div>
+        <div style={{ marginBottom: 8 }}>
+          <Title level={5} style={{ margin: 0 }}>Week starts on</Title>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            The first column of the calendar and what &ldquo;plan my week&rdquo; covers
+          </Text>
+        </div>
+        <Segmented
+          value={weekStartsOn}
+          onChange={(v) => setWeekStart(v as 0 | 1)}
+          options={[
+            { label: "Sunday", value: 0 },
+            { label: "Monday", value: 1 },
+          ]}
+        />
+      </div>
+
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
           <div>
