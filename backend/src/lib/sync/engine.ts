@@ -12,6 +12,7 @@ import { jobCrypto, type RequestCrypto } from "@/src/lib/crypto/requestCrypto";
 import { resolveAccess } from "@/src/lib/sharing/access";
 import { authorizeBlockWrite } from "@/src/lib/sharing/writeAuthz";
 import { nextAfter } from "@/src/lib/recurrence/rrule";
+import { encryptedFieldsFor } from "@/src/lib/crypto/fieldMap";
 import { SYNCABLES, findSyncable, type SyncableEntity } from "./registry";
 import { needsFullResync } from "./tombstones";
 import { predatesSchemaEpoch } from "./epoch";
@@ -48,6 +49,49 @@ const PAGE_LIMIT = Number(process.env.SYNC_PAGE_LIMIT ?? 2000);
  * returned and `hasMore` is set, so the client resumes exactly where it stopped
  * instead of skipping the remainder.
  */
+/**
+ * Decrypt a page of rows for the pull, tolerating a row that won't open.
+ *
+ * A single field that fails to decrypt used to throw straight out of the pull,
+ * turning one bad row into a 500 for the user's *entire* sync — every table,
+ * every device, with no way to recover from the client. A plan block whose
+ * title was sealed under a dead model ("CalendarEvent", which encrypts nothing)
+ * did exactly this: accept a plan, and sync was bricked until the row was fixed
+ * by hand.
+ *
+ * Availability of the whole workspace outweighs one field. The fast path still
+ * decrypts the batch in one go; only if that throws do we fall back to per-row,
+ * nulling the encrypted fields of the rows that won't open and logging each
+ * loudly so a genuine tamper or bug is found rather than silently normal. A
+ * nulled field is absence, not fabricated plaintext — the §9.7 "never serve
+ * garbage" line still holds.
+ */
+function decryptPage(
+  crypto: RequestCrypto,
+  entity: string,
+  model: string,
+  rows: Record<string, unknown>[],
+): unknown[] {
+  try {
+    return crypto.decryptMany(model, rows);
+  } catch {
+    const fields = encryptedFieldsFor(model);
+    return rows.map((row) => {
+      try {
+        return crypto.decryptMany(model, [row])[0];
+      } catch (err) {
+        console.error(
+          `[sync/pull] undecryptable ${entity} row ${String(row.id)} — serving ` +
+            `it with encrypted fields nulled: ${(err as Error).message}`,
+        );
+        const out: Record<string, unknown> = { ...row };
+        for (const f of fields) if (typeof out[f] === "string") out[f] = null;
+        return out;
+      }
+    });
+  }
+}
+
 export async function pull(
   userId: string,
   crypto: RequestCrypto,
@@ -113,7 +157,7 @@ export async function pull(
   }
 
   for (const r of results) {
-    changes[r.entity] = crypto.decryptMany(r.model, r.rows as Record<string, unknown>[]);
+    changes[r.entity] = decryptPage(crypto, r.entity, r.model, r.rows as Record<string, unknown>[]);
   }
 
   // Shared lists: rows the user can reach through membership rather than

@@ -35,7 +35,11 @@ const apply: Endpoint = async (request) => {
 
   const prepared = blocks.map((b) => {
     const title = titleById.get(b.taskId) ?? "Scheduled task";
-    const enc = crypto.encrypt("CalendarEvent", { title });
+    // Seal under "Block" — the plan block lives in the block table and is
+    // decrypted as a Block on sync. "CalendarEvent" is a dead pre-migration
+    // model (not in the field map), so it left the title *plaintext*, which then
+    // failed to open as a Block field and 500'd the user's entire pull.
+    const enc = crypto.encrypt("Block", { title });
     return { ...b, titleCiphertext: enc.title as string };
   });
 
