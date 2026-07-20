@@ -289,7 +289,7 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 const isWeekend = (d: Date) => d.getDay() === 0 || d.getDay() === 6;
 
 /** Reasons a day can refuse more work — surfaced so the UI can explain itself. */
-type Refusal = "budget" | "sessions" | "dread" | null;
+type Refusal = "budget" | "sessions" | "dread" | "deadline" | null;
 
 function dayStateFor(states: Map<string, DayState>, day: Date, p: Persona): DayState {
   const key = dayKey(day);
@@ -332,6 +332,8 @@ function placeSession(
   p: Persona,
   /** Nothing may start before this — the end of everything blocking it. */
   notBefore: Date | null,
+  /** Nothing may finish after this — a due-by task's own deadline. */
+  notAfter: Date | null,
 ): { start: Date; end: Date; energy: EnergyLevel; category: LifeArea | null; refusal: Refusal } {
   const needMs = minutes * MS_PER_MIN;
   const overrun = overrunBufferFor(p);
@@ -347,6 +349,14 @@ function placeSession(
     })
     .filter((x) => {
       if (x.room < needMs) return false;
+      // A due-by task earns nothing from work placed after it's due, so its
+      // deadline is a hard ceiling. Without this the planner would fill a
+      // 15h task onto the weekend past a Friday deadline — technically busy,
+      // practically late.
+      if (notAfter && x.usableStart.getTime() + needMs > notAfter.getTime()) {
+        refusal = refusal ?? "deadline";
+        return false;
+      }
       const st = dayStateFor(states, x.usableStart, p);
       if (st.sessionCap === 0) return false; // e.g. weekends when opted out
       if (st.used + minutes > st.budget) {
@@ -575,6 +585,11 @@ export function solve(input: SchedulerInput): ScheduleProposal {
     }
 
     const sizes = chunkSizes(task, sessionLength, personaMinChunk);
+    // A due-by task earns nothing from work scheduled after it's due, so cap
+    // placement at its deadline. Overdue tasks (deadline already past) are the
+    // exception — there's no future deadline to hold to, so place them ASAP.
+    const deadlineCap =
+      task.deadline && task.deadline.getTime() > now.getTime() ? task.deadline : null;
     const placedForTask: ScheduledBlock[] = [];
     let failed = false;
     let refusal: Refusal = null;
@@ -582,7 +597,7 @@ export function solve(input: SchedulerInput): ScheduleProposal {
     for (let i = 0; i < sizes.length; i++) {
       // Later chunks of the same task must also follow the earlier ones.
       const floor = placedForTask.length > 0 ? placedForTask.at(-1)!.end : notBefore;
-      const placement = placeSession(task, sizes[i], slots, dayStates, p, floor);
+      const placement = placeSession(task, sizes[i], slots, dayStates, p, floor, deadlineCap);
       if (placement.refusal !== null || placement.end.getTime() === 0) {
         failed = true;
         refusal = placement.refusal;
@@ -599,10 +614,28 @@ export function solve(input: SchedulerInput): ScheduleProposal {
       });
     }
 
-    if (failed) {
-      // Roll back partial placement so we don't strand orphan chunks. The reason
-      // distinguishes "there was no room" from "you chose not to fill the room",
-      // because those call for completely different responses from the user.
+    const chunkable = isChunkable(task.chunkable, task.estimatedDuration);
+
+    if (failed && chunkable && placedForTask.length > 0) {
+      // "Split across sittings" means spread it — so keep the sittings that
+      // found a home and report the shortfall, instead of throwing away hours
+      // that fit because the last ones didn't. Dropping the whole task is what
+      // made a 15h block with real open afternoons schedule as *nothing*.
+      blocks.push(...placedForTask);
+      const last = placedForTask.at(-1);
+      if (last) finishedAt.set(task.id, last.end);
+      const placedMin = placedForTask.reduce(
+        (n, b) => n + Math.round((b.end.getTime() - b.start.getTime()) / MS_PER_MIN),
+        0,
+      );
+      const remaining = Math.max(0, task.estimatedDuration - placedMin);
+      unscheduled.push({
+        taskId: task.id,
+        reason: `scheduled ${hoursLabel(placedMin)} of ${hoursLabel(task.estimatedDuration)} — the last ${hoursLabel(remaining)} ${partialShortfall(refusal)}`,
+      });
+    } else if (failed) {
+      // Non-chunkable, or nothing placed at all: it's all-or-nothing. Roll back
+      // any partial placement so we don't strand orphan chunks.
       unplaceable.add(task.id);
       unscheduled.push({
         taskId: task.id,
@@ -638,8 +671,29 @@ export function solve(input: SchedulerInput): ScheduleProposal {
   };
 }
 
+/** "2h 30m", "45m", "3h" — compact durations for the plan's explanations. */
+function hoursLabel(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+/** The tail clause for a partially-scheduled task: why the rest didn't fit. */
+function partialShortfall(refusal: Refusal): string {
+  if (refusal === "deadline") return "doesn't fit before it's due — extend the deadline, or clear some time that week";
+  if (refusal === "budget") return "would push those days past their focus budget — raise it in Settings, or let something go";
+  if (refusal === "sessions") return "would go over your daily session cap — extend a sitting, or give it another day";
+  if (refusal === "dread") return "landed on days already carrying their share of avoided work";
+  return "had no open slot left this week";
+}
+
 /** Explain, in the user's terms, why a task didn't make the plan. */
 function refusalReason(refusal: Refusal, task: SchedulableTask, input: SchedulerInput): string {
+  if (refusal === "deadline") {
+    return "there isn't enough open time before it's due — extend the deadline, or clear some commitments that week";
+  }
   if (refusal === "budget") {
     return "your days are already at their limit — this is protected downtime, not wasted space. Raise your daily focus budget in Settings, or let something go";
   }

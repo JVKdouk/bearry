@@ -148,3 +148,32 @@ test("no two placed blocks ever overlap each other", () => {
     );
   }
 });
+
+test("a chunkable task too big to fully fit is placed partially, not dropped", () => {
+  // 10h of splittable work across two 8h days whose daily budget is well under
+  // 10h: it must place what fits and report the shortfall, not vanish entirely.
+  const out = solve(baseInput([task("big", 600, { chunkable: true })]));
+  assert.ok(out.blocks.some((b) => b.taskId === "big"), "should place some chunks");
+  const un = out.unscheduled.find((u) => u.taskId === "big");
+  assert.ok(un, "should report the remainder");
+  assert.match(un!.reason, /scheduled .+ of .+/);
+});
+
+test("a non-chunkable task that can't fully fit is all-or-nothing", () => {
+  // 10h in one atomic block can't fit an 8h day, so nothing is placed.
+  const out = solve(baseInput([task("big", 600, { chunkable: false })]));
+  assert.equal(out.blocks.filter((b) => b.taskId === "big").length, 0);
+  assert.ok(out.unscheduled.some((u) => u.taskId === "big"));
+});
+
+test("a due-by task is never scheduled after its deadline", () => {
+  // Deadline Monday noon: a chunkable task bigger than the morning may only use
+  // the pre-noon slots and must report the rest — never spill past the due date.
+  const deadline = new Date(2026, 6, 20, 12, 0); // Mon 12:00 local
+  const out = solve(baseInput([task("due", 300, { chunkable: true, deadline })]));
+  const placed = out.blocks.filter((b) => b.taskId === "due");
+  assert.ok(placed.length > 0, "should place the chunks that fit before noon");
+  for (const b of placed) {
+    assert.ok(b.end.getTime() <= deadline.getTime(), `chunk ends ${b.end} after the deadline`);
+  }
+});

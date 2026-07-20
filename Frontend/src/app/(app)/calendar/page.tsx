@@ -1708,8 +1708,7 @@ function CalendarInner() {
                 saying so, "9 of 18" reads as the planner giving up. */}
             {proposal.unscheduled.length > 0 ? (
               <span style={{ fontSize: 11.5, color: TEXT.secondary }}>
-                {proposal.unscheduled.length} kept back to protect your breathing
-                room — see Review
+                {proposal.unscheduled.length} need a look — see Review
               </span>
             ) : (
               <span style={{ fontSize: 11.5, color: TEXT.secondary }}>
@@ -1796,7 +1795,7 @@ function CalendarInner() {
               }
             >
               <Button size="small" type="text" style={{ color: TEXT.secondary }}>
-                Couldn&apos;t place {proposal.unscheduled.length}
+                {proposal.unscheduled.length} need a look
               </Button>
             </Popover>
           )}
@@ -2017,7 +2016,7 @@ function CalendarInner() {
             {(proposal?.unscheduled.length ?? 0) > 0 && (
               <div style={{ borderTop: `1px solid ${SURFACE.borderSoft}`, paddingTop: 14 }}>
                 <div className="section-label" style={{ marginBottom: 10 }}>
-                  Couldn&apos;t place {proposal!.unscheduled.length}
+                  Needs a look · {proposal!.unscheduled.length}
                 </div>
                 {unplacedByReason.map(([reason, titles], i) => (
                   <div key={i} style={{ marginBottom: 12 }}>
