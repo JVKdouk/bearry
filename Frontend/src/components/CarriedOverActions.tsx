@@ -29,7 +29,7 @@ const pill: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 6,
-  height: 30,
+  height: 40,
   padding: "0 12px",
   borderRadius: 999,
   border: `1px solid ${SURFACE.border}`,

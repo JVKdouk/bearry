@@ -303,31 +303,48 @@ export function TaskCard({
             e.stopPropagation();
             update("block", todo.id, { status: done ? "todo" : "done" });
           }}
+          // 44×44 hit area (a comfortable tap target) around a 30px circle; the
+          // negative margin keeps the layout footprint the old size so nothing
+          // shifts.
           style={{
             flexShrink: 0,
-            width: 30,
-            height: 30,
-            borderRadius: "50%",
+            width: 44,
+            height: 44,
+            margin: -7,
+            padding: 0,
+            border: "none",
+            background: "transparent",
             display: "grid",
             placeItems: "center",
             cursor: "pointer",
-            background: done
-              ? featured
-                ? "rgba(255,255,255,0.9)"
-                : "#a855f7"
-              : "transparent",
-            border: `1.5px solid ${
-              done
-                ? "transparent"
-                : featured
-                  ? "rgba(255,255,255,0.6)"
-                  : "#33334a"
-            }`,
-            color: done ? (featured ? "#7c3aed" : "#fff") : "transparent",
-            transition: "all 0.15s",
           }}
         >
-          <CheckOutlined style={{ fontSize: 13 }} />
+          <span
+            aria-hidden
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: "50%",
+              display: "grid",
+              placeItems: "center",
+              background: done
+                ? featured
+                  ? "rgba(255,255,255,0.9)"
+                  : "#a855f7"
+                : "transparent",
+              border: `1.5px solid ${
+                done
+                  ? "transparent"
+                  : featured
+                    ? "rgba(255,255,255,0.6)"
+                    : "#33334a"
+              }`,
+              color: done ? (featured ? "#7c3aed" : "#fff") : "transparent",
+              transition: "all 0.15s",
+            }}
+          >
+            <CheckOutlined style={{ fontSize: 13 }} />
+          </span>
         </button>
         )}
         {isEvent && done && (

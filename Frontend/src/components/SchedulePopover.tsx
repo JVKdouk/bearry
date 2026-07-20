@@ -19,7 +19,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { Button, Input, Segmented, Select, TimePicker } from "antd";
+import { Button, Input, Segmented, Select } from "antd";
 import {
   CalendarOutlined,
   ClockCircleOutlined,
@@ -42,6 +42,14 @@ const DURATION_PRESETS = [15, 25, 30, 45, 60, 90, 120];
 
 /** The evening slot a "tonight" shortcut lands on. */
 const EVENING_HOUR = 19;
+
+/** One-tap common times — far easier on a phone than a scroll wheel. */
+const TIME_PRESETS = [
+  { label: "Morning", h: 9, m: 0 },
+  { label: "Noon", h: 12, m: 0 },
+  { label: "Afternoon", h: 15, m: 0 },
+  { label: "Evening", h: 19, m: 0 },
+];
 
 export interface ScheduleValue {
   date: Dayjs | null;
@@ -284,17 +292,81 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
           </div>
 
           <Row icon={<ClockCircleOutlined />} label="Time">
-            <TimePicker
-              needConfirm={false}
-              value={value.time}
-              onChange={(t) => onChange({ time: t })}
-              format="HH:mm"
-              minuteStep={5}
-              placeholder="Any time"
-              variant="borderless"
-              style={{ width: 110, textAlign: "right" }}
+            {/* Native time input: on a phone this opens the OS time picker — a
+                real, large control — instead of antd's cramped scroll wheel.
+                colorScheme keeps the native picker dark; the tall field is an
+                easy tap target. */}
+            <input
+              type="time"
+              aria-label="Time of day"
+              value={value.time ? value.time.format("HH:mm") : ""}
+              step={300}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) return onChange({ time: null });
+                const [h, m] = v.split(":").map(Number);
+                onChange({ time: dayjs().hour(h).minute(m).second(0).millisecond(0) });
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                outline: "none",
+                color: value.time ? "#f4f4f8" : FAINT,
+                fontSize: 16,
+                textAlign: "right",
+                minHeight: 40,
+                colorScheme: "dark",
+                fontVariantNumeric: "tabular-nums",
+              }}
             />
           </Row>
+
+          {/* One-tap common times — no wheel needed for the usual cases. */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+            {TIME_PRESETS.map((p) => {
+              const active = !!value.time && value.time.hour() === p.h && value.time.minute() === p.m;
+              return (
+                <button
+                  key={p.label}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() =>
+                    onChange({ time: dayjs().hour(p.h).minute(p.m).second(0).millisecond(0) })
+                  }
+                  style={{
+                    border: `1px solid ${active ? ACCENT : LINE}`,
+                    background: active ? ACCENT + "22" : "transparent",
+                    color: active ? ACCENT : MUTED,
+                    borderRadius: 999,
+                    padding: "0 14px",
+                    minHeight: 40,
+                    fontSize: 13,
+                    cursor: "pointer",
+                  }}
+                >
+                  {p.label}
+                </button>
+              );
+            })}
+            {value.time && (
+              <button
+                type="button"
+                onClick={() => onChange({ time: null })}
+                style={{
+                  border: `1px solid ${LINE}`,
+                  background: "transparent",
+                  color: FAINT,
+                  borderRadius: 999,
+                  padding: "0 14px",
+                  minHeight: 40,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
 
           {/* Repeat needs a date to repeat FROM, so it only appears with one —
               a rule with no anchor is dead config. */}
