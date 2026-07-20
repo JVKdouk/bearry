@@ -49,18 +49,14 @@ body {
   padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
     max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   /* two ambient lights — violet above, warm orange low-right */
-  background: radial-gradient(
-      1100px 560px at 32% -12%,
-      rgba(168, 85, 247, 0.16),
-      transparent 62%
-    ),
-    radial-gradient(900px 500px at 88% 108%, rgba(255, 107, 44, 0.13), transparent 60%),
-    #0b0b10;
+  background:
+    radial-gradient(1100px 560px at 32% -12%, rgba(168, 85, 247, 0.16), transparent 62%),
+    radial-gradient(900px 500px at 88% 108%, rgba(255, 107, 44, 0.13), transparent 60%), #0b0b10;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 a {
@@ -133,7 +129,10 @@ a {
   background: #14141c;
   border: 1px solid #20202b;
   border-radius: 18px;
-  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.15s;
 }
 .card-interactive {
   cursor: pointer;
@@ -160,7 +159,9 @@ a {
   );
   border: none;
   /* shadow blends both accents so the glow reads as one light source */
-  box-shadow: 0 10px 30px rgba(168, 85, 247, 0.2), 0 6px 22px rgba(255, 107, 44, 0.18);
+  box-shadow:
+    0 10px 30px rgba(168, 85, 247, 0.2),
+    0 6px 22px rgba(255, 107, 44, 0.18);
 }
 
 /* Content has to outrank the drifting layer, which is painted into the card's
@@ -268,7 +269,9 @@ a {
   background: transparent;
   color: #a9a9b8;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 .date-cell:hover {
   background: rgba(255, 255, 255, 0.05);
@@ -333,7 +336,10 @@ a {
   place-items: center;
   cursor: pointer;
   font-size: 15px;
-  transition: background 0.14s, color 0.14s, border-color 0.14s;
+  transition:
+    background 0.14s,
+    color 0.14s,
+    border-color 0.14s;
 }
 .cal-arrow:hover {
   background: #1c1c26;
@@ -384,7 +390,10 @@ a {
   background: rgba(168, 85, 247, 0.13);
   cursor: pointer;
   overflow: hidden;
-  transition: opacity 0.15s, border-color 0.15s, background 0.15s;
+  transition:
+    opacity 0.15s,
+    border-color 0.15s,
+    background 0.15s;
 }
 .ghost-block:hover {
   background: rgba(168, 85, 247, 0.2);
@@ -453,7 +462,9 @@ a {
   border-radius: 999px;
   font-size: 19px;
   cursor: pointer;
-  transition: color 0.15s, background 0.15s;
+  transition:
+    color 0.15s,
+    background 0.15s;
 }
 .bottom-nav-btn[data-active="true"] {
   color: #fff;
@@ -489,7 +500,9 @@ a {
   font-size: 22px;
   cursor: pointer;
   background: linear-gradient(135deg, #a855f7 0%, #e0559b 48%, #ff6b2c 100%);
-  box-shadow: 0 8px 20px rgba(168, 85, 247, 0.35), 0 4px 16px rgba(255, 107, 44, 0.3);
+  box-shadow:
+    0 8px 20px rgba(168, 85, 247, 0.35),
+    0 4px 16px rgba(255, 107, 44, 0.3);
 }
 
 /* Loading skeletons. A slow shimmer reads as "working", where a static grey
@@ -505,12 +518,7 @@ a {
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.045),
-    transparent
-  );
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.045), transparent);
   animation: skeleton-sweep 1.4s ease-in-out infinite;
 }
 @keyframes skeleton-sweep {

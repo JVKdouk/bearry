@@ -38,15 +38,15 @@ import { CalendarPeek } from "@/components/CalendarPeek";
 import { MonthGrid } from "@/components/MonthGrid";
 import { DayColumnHeader, DAY_HEADER_H } from "@/components/DayColumnHeader";
 import type { CalendarBlock as Block, CalendarView as View } from "@/lib/calendarTypes";
-import {
-  pinchDistance,
-  pinchView,
-  releaseOutcome,
-  shouldClaim,
-  trackOffset,
-} from "@/lib/swipe";
+import { pinchDistance, pinchView, releaseOutcome, shouldClaim, trackOffset } from "@/lib/swipe";
 import { untimedDayKey } from "@/lib/untimed";
-import type { Diagnosis, FindingAction, ScheduledBlock, ScheduleProposal, Block as BlockRow } from "@/lib/types";
+import type {
+  Diagnosis,
+  FindingAction,
+  ScheduledBlock,
+  ScheduleProposal,
+  Block as BlockRow,
+} from "@/lib/types";
 
 const DAY_START = 0;
 const DAY_END = 23;
@@ -118,16 +118,12 @@ function shiftAnchor(view: View, anchor: Dayjs, dir: 1 | -1): Dayjs {
   return anchor.add(dir, "week");
 }
 
-
-
 interface DragState {
   day: Dayjs;
   top: number;
   startMin: number;
   curMin: number;
 }
-
-
 
 /** An in-flight drag of a proposed block. */
 interface MoveDrag {
@@ -660,10 +656,7 @@ function CalendarInner() {
       const r = el.getBoundingClientRect();
       const minsAtPointer = ((e.clientY - r.top) / HOUR_PX) * 60 + DAY_START * 60;
       const raw = snap(minsAtPointer - md.grabOffsetMin);
-      const startMin = Math.max(
-        DAY_START * 60,
-        Math.min(raw, (DAY_END + 1) * 60 - md.durMin),
-      );
+      const startMin = Math.max(DAY_START * 60, Math.min(raw, (DAY_END + 1) * 60 - md.durMin));
       // Only count it as a move once it actually lands somewhere else — a plain
       // tap must still mean "drop this block from the plan".
       const moved = md.moved || startMin !== md.startMin || dayIdx !== md.dayIdx;
@@ -764,7 +757,10 @@ function CalendarInner() {
         const minsAtPointer = ((e.clientY - r.top) / HOUR_PX) * 60 + DAY_START * 60;
         // The bottom edge follows the pointer; never shorter than one snap step,
         // never past the end of the day.
-        const endMin = Math.min((DAY_END + 1) * 60, Math.max(bd.startMin + SNAP, snap(minsAtPointer)));
+        const endMin = Math.min(
+          (DAY_END + 1) * 60,
+          Math.max(bd.startMin + SNAP, snap(minsAtPointer)),
+        );
         const durMin = endMin - bd.startMin;
         const moved = bd.moved || durMin !== bd.durMin;
         setBlockDrag({ ...bd, durMin, moved });
@@ -888,10 +884,7 @@ function CalendarInner() {
             blocks: p.blocks.map((b) => {
               if (blockKey(b) !== key) return b;
               const cur = dayjs(b.start);
-              const durMin = Math.max(
-                SNAP,
-                patch.durMin ?? dayjs(b.end).diff(cur, "minute"),
-              );
+              const durMin = Math.max(SNAP, patch.durMin ?? dayjs(b.end).diff(cur, "minute"));
               const start = patch.day
                 ? dayjs(`${patch.day}T00:00:00`).hour(cur.hour()).minute(cur.minute())
                 : cur;
@@ -943,10 +936,7 @@ function CalendarInner() {
    * until the next render, so a deep link that switched to the week view and
    * planned in the same tick would have planned the OLD view's range.
    */
-  function planHorizon(
-    scope: "week" | "view",
-    forView: View,
-  ): { from: Dayjs; to: Dayjs } {
+  function planHorizon(scope: "week" | "view", forView: View): { from: Dayjs; to: Dayjs } {
     const today = dayjs();
 
     if (scope === "week") {
@@ -1209,11 +1199,7 @@ function CalendarInner() {
           </button>
 
           <h1 className="cal-h1">
-            <button
-              className="cal-title"
-              title="Jump to today"
-              onClick={() => setAnchor(dayjs())}
-            >
+            <button className="cal-title" title="Jump to today" onClick={() => setAnchor(dayjs())}>
               {isNarrow ? shortLabel : rangeLabel}
             </button>
           </h1>
@@ -1224,7 +1210,11 @@ function CalendarInner() {
 
           {/* explicit escape hatch on desktop, where there's room for it */}
           {!isNarrow && !showingToday && (
-            <Button type="text" onClick={() => setAnchor(dayjs())} style={{ color: TEXT.secondary }}>
+            <Button
+              type="text"
+              onClick={() => setAnchor(dayjs())}
+              style={{ color: TEXT.secondary }}
+            >
               Today
             </Button>
           )}
@@ -1235,11 +1225,7 @@ function CalendarInner() {
               the single-line header, so they move into an overflow menu. */}
           {!isNarrow ? (
             <>
-              <Segmented
-                value={view}
-                onChange={(v) => setView(v as View)}
-                options={viewOptions}
-              />
+              <Segmented value={view} onChange={(v) => setView(v as View)} options={viewOptions} />
               <Button
                 type={showRegions ? "primary" : "default"}
                 onClick={() => setShowRegions(!showRegions)}
@@ -1268,11 +1254,7 @@ function CalendarInner() {
                   { type: "divider" as const },
                   {
                     key: "regions",
-                    icon: (
-                      <CheckOutlined
-                        style={{ fontSize: 12, opacity: showRegions ? 1 : 0 }}
-                      />
-                    ),
+                    icon: <CheckOutlined style={{ fontSize: 12, opacity: showRegions ? 1 : 0 }} />,
                     label: "Block regions",
                     onClick: () => setShowRegions(!showRegions),
                   },
@@ -1295,11 +1277,7 @@ function CalendarInner() {
               loading={planning}
               disabled={offline}
               onClick={() => void runPlan("view")}
-              style={
-                offline
-                  ? { border: "none" }
-                  : { background: SUNSET, border: "none" }
-              }
+              style={offline ? { border: "none" } : { background: SUNSET, border: "none" }}
             >
               Plan
             </Button>
@@ -1329,665 +1307,684 @@ function CalendarInner() {
           onTouchEnd={onTouchEnd}
           onTouchCancel={onTouchEnd}
         >
-        <MonthGrid
-          days={days}
-          anchor={anchor}
-          now={now}
-          blocks={blocks}
-          onPickDay={(d) => {
-            // Tapping a day drills in — a month cell can't show enough to act on.
-            setAnchor(d);
-            setView("day");
-          }}
-          onCreate={(d) =>
-            openCreateTask({
-              startTime: d.hour(9).minute(0).second(0).millisecond(0).toISOString(),
-              endTime: d.hour(9).minute(30).second(0).millisecond(0).toISOString(),
-            })
-          }
-          onOpenBlock={openBlock}
-          roomForTime={!isNarrow}
-        />
+          <MonthGrid
+            days={days}
+            anchor={anchor}
+            now={now}
+            blocks={blocks}
+            onPickDay={(d) => {
+              // Tapping a day drills in — a month cell can't show enough to act on.
+              setAnchor(d);
+              setView("day");
+            }}
+            onCreate={(d) =>
+              openCreateTask({
+                startTime: d.hour(9).minute(0).second(0).millisecond(0).toISOString(),
+                endTime: d.hour(9).minute(30).second(0).millisecond(0).toISOString(),
+              })
+            }
+            onOpenBlock={openBlock}
+            roomForTime={!isNarrow}
+          />
         </div>
       ) : (
-      <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }}>
-        {/* Sticky day-header band. It's a direct child of the scroller — no
+        <div ref={scrollRef} style={{ flex: 1, overflow: "auto" }}>
+          {/* Sticky day-header band. It's a direct child of the scroller — no
             overflow-hidden or transformed ancestor between them — so `sticky`
             actually pins it as the grid scrolls under. It scrolls horizontally
             with the content (sticky only fixes the top) and mirrors the swipe's
             translate so the headers slide with their columns, its own peek rows
             filling in the neighbours a gesture reveals. */}
-        <div
-          style={{
-            position: "sticky",
-            top: 0,
-            zIndex: 10,
-            display: "flex",
-            minWidth: gridMinWidth,
-            background: SURFACE.bg,
-          }}
-        >
           <div
             style={{
-              width: gutterW,
-              flexShrink: 0,
-              height: headerH,
-              borderRight: `1px solid ${SURFACE.borderSoft}`,
-              borderBottom: `1px solid ${SURFACE.borderSoft}`,
+              position: "sticky",
+              top: 0,
+              zIndex: 10,
+              display: "flex",
+              minWidth: gridMinWidth,
+              background: SURFACE.bg,
             }}
-          />
-          <div style={{ flex: 1, overflow: "hidden", position: "relative", height: headerH }}>
+          >
             <div
               style={{
-                display: "flex",
-                transform: `translateX(${swipeDx}px)`,
-                transition: settling ? `transform ${SWIPE_SETTLE_MS}ms ease-out` : "none",
-                willChange: swipeDx !== 0 ? "transform" : undefined,
+                width: gutterW,
+                flexShrink: 0,
+                height: headerH,
+                borderRight: `1px solid ${SURFACE.borderSoft}`,
+                borderBottom: `1px solid ${SURFACE.borderSoft}`,
               }}
-            >
-              <div style={{ position: "absolute", right: "100%", top: 0, width: "100%", display: "flex" }}>
-                {renderHeaderRow(prevDays, false)}
-              </div>
-              {renderHeaderRow(days, true)}
-              <div style={{ position: "absolute", left: "100%", top: 0, width: "100%", display: "flex" }}>
-                {renderHeaderRow(nextDays, false)}
+            />
+            <div style={{ flex: 1, overflow: "hidden", position: "relative", height: headerH }}>
+              <div
+                style={{
+                  display: "flex",
+                  transform: `translateX(${swipeDx}px)`,
+                  transition: settling ? `transform ${SWIPE_SETTLE_MS}ms ease-out` : "none",
+                  willChange: swipeDx !== 0 ? "transform" : undefined,
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    right: "100%",
+                    top: 0,
+                    width: "100%",
+                    display: "flex",
+                  }}
+                >
+                  {renderHeaderRow(prevDays, false)}
+                </div>
+                {renderHeaderRow(days, true)}
+                <div
+                  style={{
+                    position: "absolute",
+                    left: "100%",
+                    top: 0,
+                    width: "100%",
+                    display: "flex",
+                  }}
+                >
+                  {renderHeaderRow(nextDays, false)}
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <div style={{ display: "flex", minWidth: gridMinWidth }}>
-          <div
-            style={{
-              width: gutterW,
-              flexShrink: 0,
-              borderRight: `1px solid ${SURFACE.borderSoft}`,
-            }}
-          >
-            {hours.map((h) => (
-              <div key={h} style={{ height: HOUR_PX, position: "relative" }}>
-                <span
-                  style={{
-                    position: "absolute",
-                    top: -7,
-                    right: isNarrow ? 5 : 9,
-                    fontSize: isNarrow ? 10 : 11,
-                    color: TEXT.tertiary,
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  {isNarrow ? String(h).padStart(2, "0") : `${String(h).padStart(2, "0")}:00`}
-                </span>
-              </div>
-            ))}
-          </div>
+          <div style={{ display: "flex", minWidth: gridMinWidth }}>
+            <div
+              style={{
+                width: gutterW,
+                flexShrink: 0,
+                borderRight: `1px solid ${SURFACE.borderSoft}`,
+              }}
+            >
+              {hours.map((h) => (
+                <div key={h} style={{ height: HOUR_PX, position: "relative" }}>
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: -7,
+                      right: isNarrow ? 5 : 9,
+                      fontSize: isNarrow ? 10 : 11,
+                      color: TEXT.tertiary,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {isNarrow ? String(h).padStart(2, "0") : `${String(h).padStart(2, "0")}:00`}
+                  </span>
+                </div>
+              ))}
+            </div>
 
-          {/* The swipe viewport. Only the day columns travel — the hour gutter
+            {/* The swipe viewport. Only the day columns travel — the hour gutter
               is a fixed reference and sliding it with them would be disorienting.
               Neighbouring periods are rendered either side so the gesture reveals
               real content rather than a blank panel that fills in on release. */}
-          <div
-            ref={trackRef}
-            style={{ flex: 1, overflow: "hidden", position: "relative" }}
-            onTouchStart={onTouchStart}
-            onTouchMove={onTouchMove}
-            onTouchEnd={onTouchEnd}
-            onTouchCancel={onTouchEnd}
-          >
             <div
-              style={{
-                display: "flex",
-                transform: `translateX(${swipeDx}px)`,
-                transition: settling ? `transform ${SWIPE_SETTLE_MS}ms ease-out` : "none",
-                // Only pay for compositing while a gesture is actually in play.
-                willChange: swipeDx !== 0 ? "transform" : undefined,
-              }}
+              ref={trackRef}
+              style={{ flex: 1, overflow: "hidden", position: "relative" }}
+              onTouchStart={onTouchStart}
+              onTouchMove={onTouchMove}
+              onTouchEnd={onTouchEnd}
+              onTouchCancel={onTouchEnd}
             >
               <div
                 style={{
-                  position: "absolute",
-                  right: "100%",
-                  top: 0,
-                  width: "100%",
                   display: "flex",
+                  transform: `translateX(${swipeDx}px)`,
+                  transition: settling ? `transform ${SWIPE_SETTLE_MS}ms ease-out` : "none",
+                  // Only pay for compositing while a gesture is actually in play.
+                  willChange: swipeDx !== 0 ? "transform" : undefined,
                 }}
               >
-                <CalendarPeek {...peekProps} days={prevDays} />
-              </div>
-
-              <div style={{ display: "flex", flex: 1, minWidth: 0 }}>
-          {days.map((day) => {
-            const isToday = day.isSame(now, "day");
-            const dragActive = drag && drag.day.isSame(day, "day");
-            const lo = dragActive ? Math.min(drag.startMin, drag.curMin) : 0;
-            const hi = dragActive ? Math.max(drag.startMin, drag.curMin) : 0;
-            const dayBlocks = blocksForDay(day);
-            const dayLayout = layoutDay(dayBlocks);
-            // Vertical spans already taken by a block, so a region label can
-            // avoid being drawn underneath one.
-            const occupied = dayBlocks.map((b) => {
-              const { top, height } = posFor(b.start, b.end);
-              return { top, bottom: top + height };
-            });
-            return (
-              <div
-                key={day.toISOString()}
-                ref={(el) => {
-                  colRefs.current[days.indexOf(day)] = el;
-                }}
-                style={{
-                  flex: 1,
-                  minWidth: colMinWidth,
-                  borderRight: `1px solid ${SURFACE.borderSoft}`,
-                }}
-              >
-                {/* The day header lives in the sticky band above the grid now,
-                    not per-column, so it stays put while the grid scrolls. */}
                 <div
-                  onMouseDown={(e) => onColumnMouseDown(e, day)}
                   style={{
-                    position: "relative",
-                    height: gridHeight,
-                    // Deliberately the normal cursor: a crosshair over the whole
-                    // grid implies "this is a drawing surface", when mostly you're
-                    // reading it. Drag-to-create still works exactly as before.
-                    cursor: "default",
-                    userSelect: "none",
+                    position: "absolute",
+                    right: "100%",
+                    top: 0,
+                    width: "100%",
+                    display: "flex",
                   }}
                 >
-                  {hours.map((h) => (
-                    <div
-                      key={h}
-                      style={{
-                        height: HOUR_PX,
-                        borderBottom: "1px solid #141420",
-                        background: h < 6 || h >= 22 ? "rgba(255,255,255,0.012)" : "transparent",
-                      }}
-                    />
-                  ))}
+                  <CalendarPeek {...peekProps} days={prevDays} />
+                </div>
 
-                  {/* recurring block regions, painted behind everything else */}
-                  {regionsForDay(day).map((r, i) => {
-                    const top = (hhmmToMin(r.start) / 60) * HOUR_PX;
-                    const height = ((hhmmToMin(r.end) - hhmmToMin(r.start)) / 60) * HOUR_PX;
-                    if (height <= 0) return null;
-                    const color = LIFE_AREA_COLOR[r.category];
-                    const isProtected = PROTECTED.has(r.category);
-                    // Hide the caption if any block covers the strip it'd occupy.
-                    const labelHidden = occupied.some(
-                      (o) => o.top < top + 18 && o.bottom > top,
-                    );
+                <div style={{ display: "flex", flex: 1, minWidth: 0 }}>
+                  {days.map((day) => {
+                    const isToday = day.isSame(now, "day");
+                    const dragActive = drag && drag.day.isSame(day, "day");
+                    const lo = dragActive ? Math.min(drag.startMin, drag.curMin) : 0;
+                    const hi = dragActive ? Math.max(drag.startMin, drag.curMin) : 0;
+                    const dayBlocks = blocksForDay(day);
+                    const dayLayout = layoutDay(dayBlocks);
+                    // Vertical spans already taken by a block, so a region label can
+                    // avoid being drawn underneath one.
+                    const occupied = dayBlocks.map((b) => {
+                      const { top, height } = posFor(b.start, b.end);
+                      return { top, bottom: top + height };
+                    });
                     return (
                       <div
-                        key={`${r.id}-${i}`}
+                        key={day.toISOString()}
+                        ref={(el) => {
+                          colRefs.current[days.indexOf(day)] = el;
+                        }}
                         style={{
-                          position: "absolute",
-                          top,
-                          height,
-                          left: 0,
-                          right: 0,
-                          zIndex: 0,
-                          pointerEvents: "none",
-                          // Protected areas (sleep/meal) are hatched — the
-                          // scheduler never places work there.
-                          background: isProtected
-                            ? `repeating-linear-gradient(45deg, ${color}14 0 6px, transparent 6px 12px)`
-                            : `${color}12`,
-                          borderTop: `1px solid ${color}33`,
-                          borderBottom: `1px solid ${color}22`,
+                          flex: 1,
+                          minWidth: colMinWidth,
+                          borderRight: `1px solid ${SURFACE.borderSoft}`,
                         }}
                       >
-                        {/* The label sits at the top of the band, which is
+                        {/* The day header lives in the sticky band above the grid now,
+                    not per-column, so it stays put while the grid scrolls. */}
+                        <div
+                          onMouseDown={(e) => onColumnMouseDown(e, day)}
+                          style={{
+                            position: "relative",
+                            height: gridHeight,
+                            // Deliberately the normal cursor: a crosshair over the whole
+                            // grid implies "this is a drawing surface", when mostly you're
+                            // reading it. Drag-to-create still works exactly as before.
+                            cursor: "default",
+                            userSelect: "none",
+                          }}
+                        >
+                          {hours.map((h) => (
+                            <div
+                              key={h}
+                              style={{
+                                height: HOUR_PX,
+                                borderBottom: "1px solid #141420",
+                                background:
+                                  h < 6 || h >= 22 ? "rgba(255,255,255,0.012)" : "transparent",
+                              }}
+                            />
+                          ))}
+
+                          {/* recurring block regions, painted behind everything else */}
+                          {regionsForDay(day).map((r, i) => {
+                            const top = (hhmmToMin(r.start) / 60) * HOUR_PX;
+                            const height = ((hhmmToMin(r.end) - hhmmToMin(r.start)) / 60) * HOUR_PX;
+                            if (height <= 0) return null;
+                            const color = LIFE_AREA_COLOR[r.category];
+                            const isProtected = PROTECTED.has(r.category);
+                            // Hide the caption if any block covers the strip it'd occupy.
+                            const labelHidden = occupied.some(
+                              (o) => o.top < top + 18 && o.bottom > top,
+                            );
+                            return (
+                              <div
+                                key={`${r.id}-${i}`}
+                                style={{
+                                  position: "absolute",
+                                  top,
+                                  height,
+                                  left: 0,
+                                  right: 0,
+                                  zIndex: 0,
+                                  pointerEvents: "none",
+                                  // Protected areas (sleep/meal) are hatched — the
+                                  // scheduler never places work there.
+                                  background: isProtected
+                                    ? `repeating-linear-gradient(45deg, ${color}14 0 6px, transparent 6px 12px)`
+                                    : `${color}12`,
+                                  borderTop: `1px solid ${color}33`,
+                                  borderBottom: `1px solid ${color}22`,
+                                }}
+                              >
+                                {/* The label sits at the top of the band, which is
                             exactly where an event starting on the hour lands —
                             "WORK" and "09:00 PR Reviews" were printing over each
                             other. The band's tint already carries the meaning,
                             so drop the text rather than stack it. */}
-                        {height >= 26 && !tinyBlocks && !labelHidden && (
-                          <span
-                            style={{
-                              fontSize: 9.5,
-                              letterSpacing: 0.4,
-                              textTransform: "uppercase",
-                              color: `${color}cc`,
-                              padding: "2px 5px",
-                              display: "inline-block",
-                              fontWeight: 600,
-                            }}
-                          >
-                            {r.label || r.category}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
+                                {height >= 26 && !tinyBlocks && !labelHidden && (
+                                  <span
+                                    style={{
+                                      fontSize: 9.5,
+                                      letterSpacing: 0.4,
+                                      textTransform: "uppercase",
+                                      color: `${color}cc`,
+                                      padding: "2px 5px",
+                                      display: "inline-block",
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    {r.label || r.category}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
 
-                  {isToday && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: minToPx(nowMin),
-                        left: 0,
-                        right: 0,
-                        height: 0,
-                        borderTop: `2px solid ${WARM}`,
-                        zIndex: 2,
-                        pointerEvents: "none",
-                      }}
-                    >
-                      <span
-                        style={{
-                          position: "absolute",
-                          left: -4,
-                          top: -4,
-                          width: 8,
-                          height: 8,
-                          borderRadius: "50%",
-                          background: WARM,
-                          boxShadow: `0 0 8px ${WARM}`,
-                        }}
-                      />
-                    </div>
-                  )}
+                          {isToday && (
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: minToPx(nowMin),
+                                left: 0,
+                                right: 0,
+                                height: 0,
+                                borderTop: `2px solid ${WARM}`,
+                                zIndex: 2,
+                                pointerEvents: "none",
+                              }}
+                            >
+                              <span
+                                style={{
+                                  position: "absolute",
+                                  left: -4,
+                                  top: -4,
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: "50%",
+                                  background: WARM,
+                                  boxShadow: `0 0 8px ${WARM}`,
+                                }}
+                              />
+                            </div>
+                          )}
 
-                  {dragActive && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: minToPx(lo),
-                        height: Math.max(minToPx(hi) - minToPx(lo), 6),
-                        left: 4,
-                        right: 4,
-                        background: "rgba(168,85,247,0.25)",
-                        border: "1px dashed rgba(168,85,247,0.7)",
-                        borderRadius: 10,
-                        pointerEvents: "none",
-                        fontSize: 10.5,
-                        color: "#d9b8ff",
-                        padding: "3px 6px",
-                      }}
-                    >
-                      {dayjs().startOf("day").add(lo, "minute").format("HH:mm")} –{" "}
-                      {dayjs().startOf("day").add(hi, "minute").format("HH:mm")}
-                    </div>
-                  )}
+                          {dragActive && (
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: minToPx(lo),
+                                height: Math.max(minToPx(hi) - minToPx(lo), 6),
+                                left: 4,
+                                right: 4,
+                                background: "rgba(168,85,247,0.25)",
+                                border: "1px dashed rgba(168,85,247,0.7)",
+                                borderRadius: 10,
+                                pointerEvents: "none",
+                                fontSize: 10.5,
+                                color: "#d9b8ff",
+                                padding: "3px 6px",
+                              }}
+                            >
+                              {dayjs().startOf("day").add(lo, "minute").format("HH:mm")} –{" "}
+                              {dayjs().startOf("day").add(hi, "minute").format("HH:mm")}
+                            </div>
+                          )}
 
-                  {/* live preview of the block being dragged */}
-                  {moveDrag?.moved && days[moveDrag.dayIdx]?.isSame(day, "day") && (
-                    <div
-                      className="ghost-block"
-                      style={{
-                        top: minToPx(moveDrag.startMin),
-                        height: Math.max(
-                          (moveDrag.durMin / 60) * HOUR_PX,
-                          MIN_BLOCK_PX,
-                        ),
-                        left: tinyBlocks ? 2 : 14,
-                        right: 2,
-                        zIndex: 3,
-                        borderStyle: "solid",
-                        background: "rgba(168,85,247,0.28)",
-                        padding: tinyBlocks ? "0 4px" : "2px 8px",
-                        pointerEvents: "none",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: tinyBlocks ? 10 : 11,
-                          fontWeight: 700,
-                          color: "#efe3ff",
-                          fontVariantNumeric: "tabular-nums",
-                        }}
-                      >
-                        {days[moveDrag.dayIdx]
-                          .startOf("day")
-                          .add(moveDrag.startMin, "minute")
-                          .format("HH:mm")}
-                      </span>
-                      {!tinyBlocks && (
-                        <span
-                          style={{
-                            fontSize: 11.5,
-                            color: "#efe3ff",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {titleById.get(moveDrag.key.split("|")[0]) ?? "Task"}
-                        </span>
-                      )}
-                    </div>
-                  )}
+                          {/* live preview of the block being dragged */}
+                          {moveDrag?.moved && days[moveDrag.dayIdx]?.isSame(day, "day") && (
+                            <div
+                              className="ghost-block"
+                              style={{
+                                top: minToPx(moveDrag.startMin),
+                                height: Math.max((moveDrag.durMin / 60) * HOUR_PX, MIN_BLOCK_PX),
+                                left: tinyBlocks ? 2 : 14,
+                                right: 2,
+                                zIndex: 3,
+                                borderStyle: "solid",
+                                background: "rgba(168,85,247,0.28)",
+                                padding: tinyBlocks ? "0 4px" : "2px 8px",
+                                pointerEvents: "none",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 6,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: tinyBlocks ? 10 : 11,
+                                  fontWeight: 700,
+                                  color: "#efe3ff",
+                                  fontVariantNumeric: "tabular-nums",
+                                }}
+                              >
+                                {days[moveDrag.dayIdx]
+                                  .startOf("day")
+                                  .add(moveDrag.startMin, "minute")
+                                  .format("HH:mm")}
+                              </span>
+                              {!tinyBlocks && (
+                                <span
+                                  style={{
+                                    fontSize: 11.5,
+                                    color: "#efe3ff",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {titleById.get(moveDrag.key.split("|")[0]) ?? "Task"}
+                                </span>
+                              )}
+                            </div>
+                          )}
 
-                  {/* existing commitments */}
-                  {blocksForDay(day).map((b) => {
-                    const { top, height } = posFor(b.start, b.end);
-                    const compact = height < STACKED_MIN_PX;
-                    // Share the width with anything it overlaps instead of
-                    // covering it.
-                    const lane = dayLayout.get(b.id) ?? { col: 0, cols: 1 };
-                    const laneW = 100 / lane.cols;
-                    // A generated recurrence occurrence isn't a real row to move,
-                    // and a plan block is fine to nudge; everything else editable.
-                    const draggable = !b.isRepeat;
-                    const dragging = blockDrag?.blockId === b.masterId;
-                    // While resizing, the block grows/shrinks in place; while
-                    // moving, it stays put and faded and a preview leads the way.
-                    const resizing = dragging && blockDrag?.mode === "resize";
-                    const moving = dragging && blockDrag?.mode === "move";
-                    const shownHeight = resizing && blockDrag
-                      ? Math.max((blockDrag.durMin / 60) * HOUR_PX - BLOCK_GAP_PX, MIN_BLOCK_PX)
-                      : height;
-                    const startBlockDrag = (mode: "move" | "resize") => (e: React.PointerEvent) => {
-                      if (!draggable) return;
-                      e.stopPropagation();
-                      const el = e.currentTarget.closest("[data-block='event']");
-                      if (!el) return;
-                      const rect = el.getBoundingClientRect();
-                      const grabOffsetMin = ((e.clientY - rect.top) / HOUR_PX) * 60;
-                      setBlockDrag({
-                        blockId: b.masterId,
-                        mode,
-                        grabOffsetMin,
-                        dayIdx: days.indexOf(day),
-                        startMin: b.start.hour() * 60 + b.start.minute(),
-                        durMin: Math.max(SNAP, b.end.diff(b.start, "minute")),
-                        moved: false,
-                      });
-                    };
-                    return (
-                      <div
-                        key={b.id}
-                        data-block="event"
-                        title={`${b.start.format("HH:mm")}–${b.end.format("HH:mm")}  ${b.title}`}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onPointerDown={draggable ? startBlockDrag("move") : undefined}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`${b.title}, ${b.start.format("HH:mm")} to ${b.end.format("HH:mm")}`}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            openBlock(b);
-                          }
-                        }}
-                        // A future occurrence opens the stored row: editing a
-                        // repeating item edits the series. A drag that actually
-                        // moved something suppresses this so it doesn't also open.
-                        onClick={() => {
-                          if (suppressBlockClickRef.current) {
-                            suppressBlockClickRef.current = false;
-                            return;
-                          }
-                          openBlock(b);
-                        }}
-                        style={{
-                          position: "absolute",
-                          top,
-                          height: shownHeight,
-                          // Dragging a block claims the gesture (so touch doesn't
-                          // scroll the grid out from under it); a still block pans.
-                          touchAction: draggable ? "none" : "pan-y",
-                          // Hug the column edges — a slim 2px inset left, ~1px
-                          // right — so a block claims almost the whole slot
-                          // width rather than floating in a wide margin. The
-                          // internal padding shrinks to match.
-                          left: `calc(${lane.col * laneW}% + 2px)`,
-                          width: `calc(${laneW}% - 3px)`,
-                          background: b.color + "26",
-                          borderLeft: `3px solid ${b.color}`,
-                          borderRadius: 8,
-                          padding: tinyBlocks ? "1px 4px" : "3px 6px",
-                          overflow: "hidden",
-                          // Always a column, title first.
-                          //
-                          // Squished blocks used to lay out as a ROW — time,
-                          // then title — which gave the title whatever few
-                          // characters were left after the clock and centred
-                          // the pair vertically. The name is what identifies
-                          // the block, so it goes first and gets every line
-                          // that fits, exactly as Google Calendar does it. A
-                          // short block simply shows fewer lines of it.
-                          display: "flex",
-                          flexDirection: "column",
-                          alignItems: "stretch",
-                          justifyContent: "flex-start",
-                          gap: 0,
-                          cursor: "pointer",
-                          // Two kinds of fade, for two different meanings.
-                          // A generated occurrence is a preview of a repeat —
-                          // not something that exists yet. A past *event* has
-                          // simply happened: an event isn't something you
-                          // complete, so going by is the whole of its
-                          // lifecycle, and it should stop competing for
-                          // attention with what's still ahead. Past TASKS keep
-                          // full weight — those are still outstanding.
-                          opacity: moving
-                            ? 0.3
-                            : b.kind === "event" && b.end.isBefore(now)
-                              ? 0.45
-                              : b.isRepeat
-                                ? 0.72
-                                : 1,
-                        }}
-                      >
-                        {/* Title first, wrapping into however many lines the
+                          {/* existing commitments */}
+                          {blocksForDay(day).map((b) => {
+                            const { top, height } = posFor(b.start, b.end);
+                            const compact = height < STACKED_MIN_PX;
+                            // Share the width with anything it overlaps instead of
+                            // covering it.
+                            const lane = dayLayout.get(b.id) ?? { col: 0, cols: 1 };
+                            const laneW = 100 / lane.cols;
+                            // A generated recurrence occurrence isn't a real row to move,
+                            // and a plan block is fine to nudge; everything else editable.
+                            const draggable = !b.isRepeat;
+                            const dragging = blockDrag?.blockId === b.masterId;
+                            // While resizing, the block grows/shrinks in place; while
+                            // moving, it stays put and faded and a preview leads the way.
+                            const resizing = dragging && blockDrag?.mode === "resize";
+                            const moving = dragging && blockDrag?.mode === "move";
+                            const shownHeight =
+                              resizing && blockDrag
+                                ? Math.max(
+                                    (blockDrag.durMin / 60) * HOUR_PX - BLOCK_GAP_PX,
+                                    MIN_BLOCK_PX,
+                                  )
+                                : height;
+                            const startBlockDrag =
+                              (mode: "move" | "resize") => (e: React.PointerEvent) => {
+                                if (!draggable) return;
+                                e.stopPropagation();
+                                const el = e.currentTarget.closest("[data-block='event']");
+                                if (!el) return;
+                                const rect = el.getBoundingClientRect();
+                                const grabOffsetMin = ((e.clientY - rect.top) / HOUR_PX) * 60;
+                                setBlockDrag({
+                                  blockId: b.masterId,
+                                  mode,
+                                  grabOffsetMin,
+                                  dayIdx: days.indexOf(day),
+                                  startMin: b.start.hour() * 60 + b.start.minute(),
+                                  durMin: Math.max(SNAP, b.end.diff(b.start, "minute")),
+                                  moved: false,
+                                });
+                              };
+                            return (
+                              <div
+                                key={b.id}
+                                data-block="event"
+                                title={`${b.start.format("HH:mm")}–${b.end.format("HH:mm")}  ${b.title}`}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onPointerDown={draggable ? startBlockDrag("move") : undefined}
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`${b.title}, ${b.start.format("HH:mm")} to ${b.end.format("HH:mm")}`}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    openBlock(b);
+                                  }
+                                }}
+                                // A future occurrence opens the stored row: editing a
+                                // repeating item edits the series. A drag that actually
+                                // moved something suppresses this so it doesn't also open.
+                                onClick={() => {
+                                  if (suppressBlockClickRef.current) {
+                                    suppressBlockClickRef.current = false;
+                                    return;
+                                  }
+                                  openBlock(b);
+                                }}
+                                style={{
+                                  position: "absolute",
+                                  top,
+                                  height: shownHeight,
+                                  // Dragging a block claims the gesture (so touch doesn't
+                                  // scroll the grid out from under it); a still block pans.
+                                  touchAction: draggable ? "none" : "pan-y",
+                                  // Hug the column edges — a slim 2px inset left, ~1px
+                                  // right — so a block claims almost the whole slot
+                                  // width rather than floating in a wide margin. The
+                                  // internal padding shrinks to match.
+                                  left: `calc(${lane.col * laneW}% + 2px)`,
+                                  width: `calc(${laneW}% - 3px)`,
+                                  background: b.color + "26",
+                                  borderLeft: `3px solid ${b.color}`,
+                                  borderRadius: 8,
+                                  padding: tinyBlocks ? "1px 4px" : "3px 6px",
+                                  overflow: "hidden",
+                                  // Always a column, title first.
+                                  //
+                                  // Squished blocks used to lay out as a ROW — time,
+                                  // then title — which gave the title whatever few
+                                  // characters were left after the clock and centred
+                                  // the pair vertically. The name is what identifies
+                                  // the block, so it goes first and gets every line
+                                  // that fits, exactly as Google Calendar does it. A
+                                  // short block simply shows fewer lines of it.
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  alignItems: "stretch",
+                                  justifyContent: "flex-start",
+                                  gap: 0,
+                                  cursor: "pointer",
+                                  // Two kinds of fade, for two different meanings.
+                                  // A generated occurrence is a preview of a repeat —
+                                  // not something that exists yet. A past *event* has
+                                  // simply happened: an event isn't something you
+                                  // complete, so going by is the whole of its
+                                  // lifecycle, and it should stop competing for
+                                  // attention with what's still ahead. Past TASKS keep
+                                  // full weight — those are still outstanding.
+                                  opacity: moving
+                                    ? 0.3
+                                    : b.kind === "event" && b.end.isBefore(now)
+                                      ? 0.45
+                                      : b.isRepeat
+                                        ? 0.72
+                                        : 1,
+                                }}
+                              >
+                                {/* Title first, wrapping into however many lines the
                             block's height allows. `WebkitLineClamp` is what
                             turns "as many lines as fit" into a clean cut with
                             an ellipsis rather than a half-height row of text
                             sliced through the middle. */}
-                        <span
-                          style={{
-                            fontSize: tinyBlocks ? 10 : compact ? 11 : 12,
-                            color: TEXT.primary,
-                            fontWeight: 600,
-                            lineHeight: 1.22,
-                            overflow: "hidden",
-                            display: "-webkit-box",
-                            WebkitBoxOrient: "vertical",
-                            WebkitLineClamp: titleLines(height, tinyBlocks),
-                            wordBreak: "break-word",
-                            minWidth: 0,
-                          }}
-                        >
-                          {b.title}
-                        </span>
-                        {/* The time only earns a line once the title has had
+                                <span
+                                  style={{
+                                    fontSize: tinyBlocks ? 10 : compact ? 11 : 12,
+                                    color: TEXT.primary,
+                                    fontWeight: 600,
+                                    lineHeight: 1.22,
+                                    overflow: "hidden",
+                                    display: "-webkit-box",
+                                    WebkitBoxOrient: "vertical",
+                                    WebkitLineClamp: titleLines(height, tinyBlocks),
+                                    wordBreak: "break-word",
+                                    minWidth: 0,
+                                  }}
+                                >
+                                  {b.title}
+                                </span>
+                                {/* The time only earns a line once the title has had
                             the room it needs. The block's position already
                             conveys when it is. */}
-                        {!tinyBlocks && !compact && (
-                          <span
-                            style={{
-                              fontSize: 10.5,
-                              color: b.color,
-                              fontWeight: 700,
-                              lineHeight: 1.25,
-                              fontVariantNumeric: "tabular-nums",
-                              flexShrink: 0,
-                              marginTop: 1,
-                            }}
-                          >
-                            {b.start.format("HH:mm")}
-                          </span>
-                        )}
+                                {!tinyBlocks && !compact && (
+                                  <span
+                                    style={{
+                                      fontSize: 10.5,
+                                      color: b.color,
+                                      fontWeight: 700,
+                                      lineHeight: 1.25,
+                                      fontVariantNumeric: "tabular-nums",
+                                      flexShrink: 0,
+                                      marginTop: 1,
+                                    }}
+                                  >
+                                    {b.start.format("HH:mm")}
+                                  </span>
+                                )}
 
-                        {/* Resize handle: a grabbable strip along the bottom edge
+                                {/* Resize handle: a grabbable strip along the bottom edge
                             that drags the end time. Only on real, tall-enough
                             blocks — a generated occurrence isn't a row to resize,
                             and a sliver has no room for a handle. */}
-                        {draggable && shownHeight >= STACKED_MIN_PX && (
-                          <div
-                            onPointerDown={startBlockDrag("resize")}
-                            onClick={(e) => e.stopPropagation()}
-                            aria-hidden
-                            style={{
-                              position: "absolute",
-                              left: 0,
-                              right: 0,
-                              bottom: 0,
-                              height: 10,
-                              cursor: "ns-resize",
-                              touchAction: "none",
-                              display: "flex",
-                              justifyContent: "center",
-                              alignItems: "flex-end",
-                              paddingBottom: 1,
-                            }}
-                          >
-                            <span
-                              style={{
-                                width: 22,
-                                height: 3,
-                                borderRadius: 2,
-                                background: b.color,
-                                opacity: resizing ? 1 : 0.5,
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                                {draggable && shownHeight >= STACKED_MIN_PX && (
+                                  <div
+                                    onPointerDown={startBlockDrag("resize")}
+                                    onClick={(e) => e.stopPropagation()}
+                                    aria-hidden
+                                    style={{
+                                      position: "absolute",
+                                      left: 0,
+                                      right: 0,
+                                      bottom: 0,
+                                      height: 10,
+                                      cursor: "ns-resize",
+                                      touchAction: "none",
+                                      display: "flex",
+                                      justifyContent: "center",
+                                      alignItems: "flex-end",
+                                      paddingBottom: 1,
+                                    }}
+                                  ></div>
+                                )}
+                              </div>
+                            );
+                          })}
 
-                  {/* Live preview of a committed block being moved to a new slot
+                          {/* Live preview of a committed block being moved to a new slot
                       — mirrors the ghost-move preview. Rendered in whichever day
                       column the pointer is over, so a cross-day drag shows up in
                       the target day while the original fades in place. */}
-                  {blockDrag?.mode === "move" && blockDrag.moved && days.indexOf(day) === blockDrag.dayIdx && (
-                    <div
-                      aria-hidden
-                      style={{
-                        position: "absolute",
-                        top: minToPx(blockDrag.startMin),
-                        height: Math.max((blockDrag.durMin / 60) * HOUR_PX - BLOCK_GAP_PX, MIN_BLOCK_PX),
-                        left: 2,
-                        right: 3,
-                        zIndex: 5,
-                        borderRadius: 8,
-                        background: "rgba(168,85,247,0.28)",
-                        border: "1px solid rgba(168,85,247,0.7)",
-                        pointerEvents: "none",
-                        padding: "2px 6px",
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: "#efe3ff",
-                        fontVariantNumeric: "tabular-nums",
-                      }}
-                    >
-                      {days[blockDrag.dayIdx].startOf("day").add(blockDrag.startMin, "minute").format("HH:mm")}
-                    </div>
-                  )}
+                          {blockDrag?.mode === "move" &&
+                            blockDrag.moved &&
+                            days.indexOf(day) === blockDrag.dayIdx && (
+                              <div
+                                aria-hidden
+                                style={{
+                                  position: "absolute",
+                                  top: minToPx(blockDrag.startMin),
+                                  height: Math.max(
+                                    (blockDrag.durMin / 60) * HOUR_PX - BLOCK_GAP_PX,
+                                    MIN_BLOCK_PX,
+                                  ),
+                                  left: 2,
+                                  right: 3,
+                                  zIndex: 5,
+                                  borderRadius: 8,
+                                  background: "rgba(168,85,247,0.28)",
+                                  border: "1px solid rgba(168,85,247,0.7)",
+                                  pointerEvents: "none",
+                                  padding: "2px 6px",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color: "#efe3ff",
+                                  fontVariantNumeric: "tabular-nums",
+                                }}
+                              >
+                                {days[blockDrag.dayIdx]
+                                  .startOf("day")
+                                  .add(blockDrag.startMin, "minute")
+                                  .format("HH:mm")}
+                              </div>
+                            )}
 
-                  {/* Proposed ghosts. Dropped ones are removed entirely rather
+                          {/* Proposed ghosts. Dropped ones are removed entirely rather
                       than greyed out, so the slot is genuinely free to tap and
                       put something else there. Restore them from Review. */}
-                  {ghostsForDay(day)
-                    .filter((g) => !excluded.has(blockKey(g)))
-                    .map((g) => {
-                      const start = dayjs(g.start);
-                      const end = dayjs(g.end);
-                      const { top, height } = posFor(start, end);
-                      const compact = height < STACKED_MIN_PX;
-                      const key = blockKey(g);
-                      const title = titleById.get(g.taskId) ?? "Task";
-                      return (
-                        <div
-                          key={key}
-                          data-block="ghost"
-                          className="ghost-block"
-                          title={`${start.format("HH:mm")}–${end.format("HH:mm")}  ${title}\n${g.reason}\n\nDrag to move · tap to drop`}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onPointerDown={(e) => {
-                            e.stopPropagation();
-                            // Stops the browser synthesizing mousedown/click after
-                            // a touch tap, which is what leaked through to the grid.
-                            e.preventDefault();
-                            // Grab offset keeps the block under the finger
-                            // instead of snapping its top to the cursor.
-                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                            const grabOffsetMin = ((e.clientY - rect.top) / HOUR_PX) * 60;
-                            setMoveDrag({
-                              key,
-                              durMin: end.diff(start, "minute"),
-                              grabOffsetMin,
-                              dayIdx: days.findIndex((d) => d.isSame(day, "day")),
-                              startMin: start.hour() * 60 + start.minute(),
-                              moved: false,
-                            });
-                          }}
-                          style={{
-                            top,
-                            height,
-                            touchAction: "none", // let us handle the drag, not the scroller
-                            opacity: moveDrag?.key === key ? 0.25 : undefined,
-                            left: tinyBlocks ? 2 : 14,
-                            right: 2,
-                            zIndex: 1,
-                            padding: tinyBlocks ? "0 4px" : compact ? "0 8px" : "4px 8px",
-                            display: "flex",
-                            flexDirection: compact || tinyBlocks ? "row" : "column",
-                            alignItems: compact || tinyBlocks ? "center" : "stretch",
-                            gap: compact ? 6 : 0,
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontSize: tinyBlocks ? 10 : 11,
-                              fontWeight: 700,
-                              lineHeight: 1.2,
-                              color: "#d9b8ff",
-                              fontVariantNumeric: "tabular-nums",
-                              flexShrink: 0,
-                            }}
-                          >
-                            {start.format("HH:mm")}
-                          </span>
-                          {/* a truncated "Pil…" is noise, not information */}
-                          {!tinyBlocks && (
-                            <span
-                              style={{
-                                fontSize: compact ? 11.5 : 12,
-                                lineHeight: 1.2,
-                                color: TEXT.primary,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: compact ? "nowrap" : "normal",
-                                minWidth: 0,
-                              }}
-                            >
-                              {title}
-                              {g.isChunk && g.chunkCount
-                                ? ` (${(g.chunkIndex ?? 0) + 1}/${g.chunkCount})`
-                                : ""}
-                            </span>
-                          )}
+                          {ghostsForDay(day)
+                            .filter((g) => !excluded.has(blockKey(g)))
+                            .map((g) => {
+                              const start = dayjs(g.start);
+                              const end = dayjs(g.end);
+                              const { top, height } = posFor(start, end);
+                              const compact = height < STACKED_MIN_PX;
+                              const key = blockKey(g);
+                              const title = titleById.get(g.taskId) ?? "Task";
+                              return (
+                                <div
+                                  key={key}
+                                  data-block="ghost"
+                                  className="ghost-block"
+                                  title={`${start.format("HH:mm")}–${end.format("HH:mm")}  ${title}\n${g.reason}\n\nDrag to move · tap to drop`}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  onPointerDown={(e) => {
+                                    e.stopPropagation();
+                                    // Stops the browser synthesizing mousedown/click after
+                                    // a touch tap, which is what leaked through to the grid.
+                                    e.preventDefault();
+                                    // Grab offset keeps the block under the finger
+                                    // instead of snapping its top to the cursor.
+                                    const rect = (
+                                      e.currentTarget as HTMLElement
+                                    ).getBoundingClientRect();
+                                    const grabOffsetMin = ((e.clientY - rect.top) / HOUR_PX) * 60;
+                                    setMoveDrag({
+                                      key,
+                                      durMin: end.diff(start, "minute"),
+                                      grabOffsetMin,
+                                      dayIdx: days.findIndex((d) => d.isSame(day, "day")),
+                                      startMin: start.hour() * 60 + start.minute(),
+                                      moved: false,
+                                    });
+                                  }}
+                                  style={{
+                                    top,
+                                    height,
+                                    touchAction: "none", // let us handle the drag, not the scroller
+                                    opacity: moveDrag?.key === key ? 0.25 : undefined,
+                                    left: tinyBlocks ? 2 : 14,
+                                    right: 2,
+                                    zIndex: 1,
+                                    padding: tinyBlocks ? "0 4px" : compact ? "0 8px" : "4px 8px",
+                                    display: "flex",
+                                    flexDirection: compact || tinyBlocks ? "row" : "column",
+                                    alignItems: compact || tinyBlocks ? "center" : "stretch",
+                                    gap: compact ? 6 : 0,
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: tinyBlocks ? 10 : 11,
+                                      fontWeight: 700,
+                                      lineHeight: 1.2,
+                                      color: "#d9b8ff",
+                                      fontVariantNumeric: "tabular-nums",
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {start.format("HH:mm")}
+                                  </span>
+                                  {/* a truncated "Pil…" is noise, not information */}
+                                  {!tinyBlocks && (
+                                    <span
+                                      style={{
+                                        fontSize: compact ? 11.5 : 12,
+                                        lineHeight: 1.2,
+                                        color: TEXT.primary,
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: compact ? "nowrap" : "normal",
+                                        minWidth: 0,
+                                      }}
+                                    >
+                                      {title}
+                                      {g.isChunk && g.chunkCount
+                                        ? ` (${(g.chunkIndex ?? 0) + 1}/${g.chunkCount})`
+                                        : ""}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })}
                         </div>
-                      );
-                    })}
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            );
-          })}
-              </div>
 
-              <div
-                style={{
-                  position: "absolute",
-                  left: "100%",
-                  top: 0,
-                  width: "100%",
-                  display: "flex",
-                }}
-              >
-                <CalendarPeek {...peekProps} days={nextDays} />
+                <div
+                  style={{
+                    position: "absolute",
+                    left: "100%",
+                    top: 0,
+                    width: "100%",
+                    display: "flex",
+                  }}
+                >
+                  <CalendarPeek {...peekProps} days={nextDays} />
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
       )}
 
       {/* floating planning bar */}
@@ -2078,7 +2075,11 @@ function CalendarInner() {
                       </div>
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         {titles.map((t, j) => (
-                          <Tag key={j} bordered={false} style={{ margin: 0, background: "#17171f" }}>
+                          <Tag
+                            key={j}
+                            bordered={false}
+                            style={{ margin: 0, background: "#17171f" }}
+                          >
                             {t}
                           </Tag>
                         ))}
@@ -2130,7 +2131,14 @@ function CalendarInner() {
       >
         <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
           {isNarrow && (
-            <div style={{ display: "grid", placeItems: "center", padding: "10px 0 2px", flexShrink: 0 }}>
+            <div
+              style={{
+                display: "grid",
+                placeItems: "center",
+                padding: "10px 0 2px",
+                flexShrink: 0,
+              }}
+            >
               <span style={{ width: 38, height: 4, borderRadius: 999, background: "#33333f" }} />
             </div>
           )}
@@ -2198,7 +2206,14 @@ function CalendarInner() {
                       }}
                     >
                       <div style={{ fontSize: 13.5, fontWeight: 700, color: tone }}>{f.title}</div>
-                      <div style={{ fontSize: 12.5, color: TEXT.secondary, marginTop: 4, lineHeight: 1.5 }}>
+                      <div
+                        style={{
+                          fontSize: 12.5,
+                          color: TEXT.secondary,
+                          marginTop: 4,
+                          lineHeight: 1.5,
+                        }}
+                      >
                         {f.detail}
                       </div>
                       {f.action !== "none" && (
@@ -2221,138 +2236,155 @@ function CalendarInner() {
               <Empty description="Nothing proposed" />
             )}
 
-            {reviewTab === "plan" && proposalByDay.map(([dayKey, list]) => (
-              <div key={dayKey} style={{ marginBottom: 20 }}>
-                <div className="section-label" style={{ marginBottom: 8 }}>
-                  {dayjs(dayKey).format("dddd, MMM D")}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {list.map((b) => {
-                    const key = blockKey(b);
-                    const off = excluded.has(key);
-                    const title = titleById.get(b.taskId) ?? "Task";
-                    const mins = dayjs(b.end).diff(dayjs(b.start), "minute");
-                    return (
-                      <div
-                        key={key}
-                        className="card card-interactive"
-                        onClick={() => toggleBlock(key)}
-                        style={{ padding: 12, opacity: off ? 0.45 : 1 }}
-                      >
-                        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div
-                              style={{
-                                fontSize: 12.5,
-                                color: off ? TEXT.tertiary : "#d9b8ff",
-                                fontWeight: 700,
-                                fontVariantNumeric: "tabular-nums",
-                              }}
-                            >
-                              {dayjs(b.start).format("HH:mm")}–{dayjs(b.end).format("HH:mm")}
-                              <span style={{ color: TEXT.tertiary, fontWeight: 400 }}>
-                                {" "}
-                                · {durationLabel(mins)}
-                              </span>
-                            </div>
-                            <div
-                              style={{
-                                fontSize: 15,
-                                fontWeight: 700,
-                                lineHeight: 1.3,
-                                marginTop: 3,
-                                color: off ? TEXT.tertiary : TEXT.primary,
-                                textDecoration: off ? "line-through" : "none",
-                                wordBreak: "break-word",
-                              }}
-                            >
-                              {title}
-                              {b.isChunk && b.chunkCount
-                                ? ` (${(b.chunkIndex ?? 0) + 1}/${b.chunkCount})`
-                                : ""}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: 12,
-                                color: TEXT.tertiary,
-                                marginTop: 5,
-                                lineHeight: 1.45,
-                              }}
-                            >
-                              {b.reason}
-                            </div>
+            {reviewTab === "plan" &&
+              proposalByDay.map(([dayKey, list]) => (
+                <div key={dayKey} style={{ marginBottom: 20 }}>
+                  <div className="section-label" style={{ marginBottom: 8 }}>
+                    {dayjs(dayKey).format("dddd, MMM D")}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {list.map((b) => {
+                      const key = blockKey(b);
+                      const off = excluded.has(key);
+                      const title = titleById.get(b.taskId) ?? "Task";
+                      const mins = dayjs(b.end).diff(dayjs(b.start), "minute");
+                      return (
+                        <div
+                          key={key}
+                          className="card card-interactive"
+                          onClick={() => toggleBlock(key)}
+                          style={{ padding: 12, opacity: off ? 0.45 : 1 }}
+                        >
+                          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div
+                                style={{
+                                  fontSize: 12.5,
+                                  color: off ? TEXT.tertiary : "#d9b8ff",
+                                  fontWeight: 700,
+                                  fontVariantNumeric: "tabular-nums",
+                                }}
+                              >
+                                {dayjs(b.start).format("HH:mm")}–{dayjs(b.end).format("HH:mm")}
+                                <span style={{ color: TEXT.tertiary, fontWeight: 400 }}>
+                                  {" "}
+                                  · {durationLabel(mins)}
+                                </span>
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 15,
+                                  fontWeight: 700,
+                                  lineHeight: 1.3,
+                                  marginTop: 3,
+                                  color: off ? TEXT.tertiary : TEXT.primary,
+                                  textDecoration: off ? "line-through" : "none",
+                                  wordBreak: "break-word",
+                                }}
+                              >
+                                {title}
+                                {b.isChunk && b.chunkCount
+                                  ? ` (${(b.chunkIndex ?? 0) + 1}/${b.chunkCount})`
+                                  : ""}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: TEXT.tertiary,
+                                  marginTop: 5,
+                                  lineHeight: 1.45,
+                                }}
+                              >
+                                {b.reason}
+                              </div>
 
-                            {/* Set an exact day and duration — the keyboard
+                              {/* Set an exact day and duration — the keyboard
                                 equivalent of dragging/resizing on the grid. The
                                 whole row stops propagation so fiddling with it
                                 doesn't toggle keep/drop. */}
-                            {!off && (
-                              <div
-                                onClick={(e) => e.stopPropagation()}
-                                style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}
-                              >
-                                <input
-                                  type="date"
-                                  aria-label="Day"
-                                  value={dayjs(b.start).format("YYYY-MM-DD")}
-                                  onChange={(e) => e.target.value && editSuggestion(key, { day: e.target.value })}
+                              {!off && (
+                                <div
+                                  onClick={(e) => e.stopPropagation()}
                                   style={{
-                                    background: "#17171f",
-                                    border: `1px solid ${SURFACE.borderSoft}`,
-                                    borderRadius: 7,
-                                    color: TEXT.secondary,
-                                    fontSize: 12,
-                                    padding: "4px 8px",
-                                    colorScheme: "dark",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 10,
+                                    marginTop: 10,
+                                    flexWrap: "wrap",
                                   }}
-                                />
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <Button
-                                    size="small"
-                                    aria-label="Fifteen minutes shorter"
-                                    disabled={mins <= SNAP}
-                                    onClick={() => editSuggestion(key, { durMin: mins - SNAP })}
-                                  >
-                                    −
-                                  </Button>
-                                  <span style={{ fontSize: 12, color: TEXT.secondary, minWidth: 44, textAlign: "center", fontVariantNumeric: "tabular-nums" }}>
-                                    {durationLabel(mins)}
-                                  </span>
-                                  <Button
-                                    size="small"
-                                    aria-label="Fifteen minutes longer"
-                                    onClick={() => editSuggestion(key, { durMin: mins + SNAP })}
-                                  >
-                                    +
-                                  </Button>
+                                >
+                                  <input
+                                    type="date"
+                                    aria-label="Day"
+                                    value={dayjs(b.start).format("YYYY-MM-DD")}
+                                    onChange={(e) =>
+                                      e.target.value && editSuggestion(key, { day: e.target.value })
+                                    }
+                                    style={{
+                                      background: "#17171f",
+                                      border: `1px solid ${SURFACE.borderSoft}`,
+                                      borderRadius: 7,
+                                      color: TEXT.secondary,
+                                      fontSize: 12,
+                                      padding: "4px 8px",
+                                      colorScheme: "dark",
+                                    }}
+                                  />
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <Button
+                                      size="small"
+                                      aria-label="Fifteen minutes shorter"
+                                      disabled={mins <= SNAP}
+                                      onClick={() => editSuggestion(key, { durMin: mins - SNAP })}
+                                    >
+                                      −
+                                    </Button>
+                                    <span
+                                      style={{
+                                        fontSize: 12,
+                                        color: TEXT.secondary,
+                                        minWidth: 44,
+                                        textAlign: "center",
+                                        fontVariantNumeric: "tabular-nums",
+                                      }}
+                                    >
+                                      {durationLabel(mins)}
+                                    </span>
+                                    <Button
+                                      size="small"
+                                      aria-label="Fifteen minutes longer"
+                                      onClick={() => editSuggestion(key, { durMin: mins + SNAP })}
+                                    >
+                                      +
+                                    </Button>
+                                  </div>
                                 </div>
-                              </div>
-                            )}
+                              )}
+                            </div>
+                            <span
+                              aria-label={off ? "Restore" : "Drop"}
+                              style={{
+                                flexShrink: 0,
+                                width: 28,
+                                height: 28,
+                                borderRadius: "50%",
+                                display: "grid",
+                                placeItems: "center",
+                                fontSize: 11,
+                                background: off ? "transparent" : ACCENT,
+                                border: off ? "1.5px solid #33333f" : "none",
+                                color: off ? TEXT.tertiary : "#fff",
+                              }}
+                            >
+                              {off ? <CloseOutlined /> : <CheckOutlined />}
+                            </span>
                           </div>
-                          <span
-                            aria-label={off ? "Restore" : "Drop"}
-                            style={{
-                              flexShrink: 0,
-                              width: 28,
-                              height: 28,
-                              borderRadius: "50%",
-                              display: "grid",
-                              placeItems: "center",
-                              fontSize: 11,
-                              background: off ? "transparent" : ACCENT,
-                              border: off ? "1.5px solid #33333f" : "none",
-                              color: off ? TEXT.tertiary : "#fff",
-                            }}
-                          >
-                            {off ? <CloseOutlined /> : <CheckOutlined />}
-                          </span>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
 
             {(proposal?.unscheduled.length ?? 0) > 0 && (
               <div style={{ borderTop: `1px solid ${SURFACE.borderSoft}`, paddingTop: 14 }}>
