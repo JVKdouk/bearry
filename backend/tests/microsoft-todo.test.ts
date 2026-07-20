@@ -1,4 +1,4 @@
-/** Mapping a Microsoft To Do task to a Bearry task block. */
+/** Mapping a Microsoft To Do task to a Kuma task block. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { toTaskBlock } from "@/src/lib/integrations/providers/microsoftTodo";

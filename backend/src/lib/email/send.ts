@@ -66,8 +66,8 @@ export async function sendEmail(to: string, subject: string, html: string, text:
   // claiming a different From just gets it replaced (or the mail rejected).
   // Default to the account itself and let MAILER_FROM name the display name.
   const from = gmailConfigured()
-    ? (process.env.MAILER_FROM ?? `Bearry <${process.env.GMAIL_USER}>`)
-    : (process.env.MAILER_FROM ?? "Bearry <no-reply@bearry.app>");
+    ? (process.env.MAILER_FROM ?? `Kuma <${process.env.GMAIL_USER}>`)
+    : (process.env.MAILER_FROM ?? "Kuma <no-reply@kuma.day>");
 
   await getTransport().sendMail({ from, to, subject, text, html });
 }

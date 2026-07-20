@@ -29,7 +29,7 @@ export function pushEnabled(): boolean {
 
   const publicKey = process.env.VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT ?? "mailto:noreply@bearry.app";
+  const subject = process.env.VAPID_SUBJECT ?? "mailto:noreply@kuma.day";
 
   if (!publicKey || !privateKey) {
     configured = false;

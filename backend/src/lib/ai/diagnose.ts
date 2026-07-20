@@ -120,7 +120,7 @@ export async function findFindings(
     findings.push({
       severity: "info",
       title: "Your days are full by your own settings",
-      detail: `You have ${hoursLabel(cap.capacityMinutes)} of open time, but you've told Bearry ${hoursLabel(budget)} of focused work is a realistic load. The rest is protected breathing room. If that feels too cautious, raise your daily focus budget under Settings → How you work.`,
+      detail: `You have ${hoursLabel(cap.capacityMinutes)} of open time, but you've told Kuma ${hoursLabel(budget)} of focused work is a realistic load. The rest is protected breathing room. If that feels too cautious, raise your daily focus budget under Settings → How you work.`,
       action: "adjust_rhythm",
     });
   }

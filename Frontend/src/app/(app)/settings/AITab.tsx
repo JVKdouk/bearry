@@ -58,10 +58,10 @@ export function AITab() {
           <strong style={{ color: TEXT.primary }}>What this means.</strong> Your task
           titles and notes are encrypted on the server. Turning this on decrypts
           them for the duration of a request and sends them to Google&apos;s Gemini
-          API so it can estimate and summarise. Nothing is stored there by Bearry.
+          API so it can estimate and summarise. Nothing is stored there by Kuma.
           <br />
           <br />
-          With this <strong>off</strong>, Bearry still estimates durations, spots
+          With this <strong>off</strong>, Kuma still estimates durations, spots
           reminders, and explains why a plan failed — using local rules only, and
           without any text leaving the server. AI is an upgrade, never a
           requirement.

@@ -478,9 +478,13 @@ async function applyOp(ctx: PushContext, op: PushOp): Promise<PushOpResult> {
     let writable = pickWritable(s, op.data ?? {});
 
     // Completing a repeating task advances the series instead of ending it.
+    let advancedRecurrence = false;
     if (op.id && shouldAdvanceRecurrence(s.entity, writable.status)) {
       const advanced = await advanceRecurrence(ownerId, op.id, writable);
-      if (advanced) writable = advanced;
+      if (advanced) {
+        writable = advanced;
+        advancedRecurrence = true;
+      }
     }
 
     const encrypted = crypto.encrypt(s.model, writable);
@@ -500,6 +504,13 @@ async function applyOp(ctx: PushContext, op: PushOp): Promise<PushOpResult> {
           data: { ...encrypted, version: (existing.version ?? 1) + 1, deletedAt: null },
           select: { version: true },
         });
+        // The occurrence just rolled forward, so the planner blocks that carved
+        // out time for the one now finished are spent. Left behind, they keep
+        // the task pinned to today (the day view reads a task's position from
+        // its earliest plan block, not its deadline) — the "I completed it but
+        // it's still on Today, dated next month" bug. Vacate them; the next
+        // planning run schedules the new occurrence.
+        if (advancedRecurrence) await vacatePlannerBlocks(ownerId, op.id);
         return { entity: op.entity, id: op.id, status: "applied", version: updated.version };
       }
       // Client-generated id that doesn't exist yet → create with that id. On a
@@ -575,6 +586,24 @@ async function advanceRecurrence(
   await shiftReminders(userId, todoId, anchor, next);
 
   return out;
+}
+
+/**
+ * Retire the planner blocks that scheduled the occurrence just completed.
+ *
+ * A plan block exists to give a task a concrete time; the day view derives a
+ * task's position from its earliest such block (see `plannedAt` in the web
+ * client), which takes precedence over the deadline. So when a repeating task
+ * rolls to next month, a plan block still sitting on today keeps the task
+ * showing today — completed, re-dated, and yet stubbornly present. Soft-deleting
+ * them (updatedAt bumps, so the delete syncs as a tombstone) frees the task to
+ * sit at its new date; the next planning run carves fresh time for it.
+ */
+async function vacatePlannerBlocks(userId: string, taskId: string): Promise<void> {
+  await database.block.updateMany({
+    where: { planForId: taskId, userId, deletedAt: null },
+    data: { deletedAt: new Date() },
+  });
 }
 
 /**

@@ -14,7 +14,7 @@ export const CONFIG = {
   // is a no-op — goals still notify locally while the app is open.
   VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY,
   VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
-  VAPID_SUBJECT: process.env.VAPID_SUBJECT || "mailto:admin@kona.app",
+  VAPID_SUBJECT: process.env.VAPID_SUBJECT || "mailto:admin@kuma.day",
 };
 
 /**

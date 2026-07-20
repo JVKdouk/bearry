@@ -93,7 +93,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
                   : "This link has expired."}
             </p>
             <Button onClick={() => router.replace(user ? "/today" : "/login")}>
-              {user ? "Back to Bearry" : "Go to sign in"}
+              {user ? "Back to Kuma" : "Go to sign in"}
             </Button>
           </>
         ) : preview ? (
@@ -139,7 +139,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
                   Sign in to accept
                 </Button>
                 <p style={{ color: "#6f6f80", fontSize: 12, marginTop: 12, marginBottom: 0 }}>
-                  New to Bearry? You can create an account on the next screen.
+                  New to Kuma? You can create an account on the next screen.
                 </p>
               </>
             )}

@@ -194,7 +194,7 @@ export default function IntegrationsPage() {
     <div>
       <PageHeader
         title="Integrations"
-        subtitle={connected ? `${connected} connected · your tools, in one calm place` : "Bring your tools into Bearry"}
+        subtitle={connected ? `${connected} connected · your tools, in one calm place` : "Bring your tools into Kuma"}
       />
 
       {offline && (
@@ -204,7 +204,7 @@ export default function IntegrationsPage() {
           icon={<CloudOutlined />}
           style={{ marginBottom: 16 }}
           message="Integrations need a connection"
-          description="Connecting and syncing talk to services like Google and TickTick, so they're paused while you're offline. Everything already imported is still here, and the rest of Bearry works normally."
+          description="Connecting and syncing talk to services like Google and TickTick, so they're paused while you're offline. Everything already imported is still here, and the rest of Kuma works normally."
         />
       )}
 

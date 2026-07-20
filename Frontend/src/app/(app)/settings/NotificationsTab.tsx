@@ -132,7 +132,7 @@ export function NotificationsTab() {
           type="info"
           showIcon
           message="This browser can't show notifications"
-          description="Installing Bearry to your home screen usually enables them on mobile."
+          description="Installing Kuma to your home screen usually enables them on mobile."
         />
       )}
 

@@ -3,8 +3,8 @@ cd ./Frontend
 yarn
 # NEXT_PUBLIC_* is inlined into client JS at build time. Pin the prod API base
 # here so it can't be overridden by .env.local (which points at localhost).
-# The backend is proxied at task.kdouk.com/api (nginx strips /api → :10010).
-NEXT_PUBLIC_API_BASE=https://task.kdouk.com/api yarn build
+# The backend is proxied at kuma.day/api (nginx strips /api → :10010).
+NEXT_PUBLIC_API_BASE=https://kuma.day/api yarn build
 # Standalone output does NOT include static/ or public/ — fold them into the
 # standalone tree so server.js can serve /_next/static and public assets
 # (without this, every chunk 404s).

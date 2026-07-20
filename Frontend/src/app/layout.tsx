@@ -3,13 +3,20 @@ import "@/styles/globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "Bearry",
+  title: "Kuma",
   description: "ADHD-first productivity assistant",
   manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Bearry",
+    title: "Kuma",
   },
 };
 

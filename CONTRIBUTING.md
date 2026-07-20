@@ -1,4 +1,4 @@
-# Working on Bearry
+# Working on Kuma
 
 Conventions that exist because something went wrong without them. Each one names
 the failure it prevents, so it's clear when a rule stops applying.

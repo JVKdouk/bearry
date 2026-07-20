@@ -1,6 +1,6 @@
-# Bearry — Frontend (PWA)
+# Kuma — Frontend (PWA)
 
-A desktop-first, installable **PWA** for the Bearry ADHD productivity assistant,
+A desktop-first, installable **PWA** for the Kuma ADHD productivity assistant,
 built with **Next.js (App Router) + Ant Design (dark theme)**, talking to the
 Fastify backend.
 

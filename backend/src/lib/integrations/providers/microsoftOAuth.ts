@@ -130,4 +130,4 @@ export async function graphGet<T>(url: string, accessToken: string): Promise<T> 
 }
 
 export const NO_REFRESH_TOKEN_HELP =
-  "Microsoft didn't return a refresh token. Remove Bearry at https://microsoft.com/consent, then reconnect.";
+  "Microsoft didn't return a refresh token. Remove Kuma at https://microsoft.com/consent, then reconnect.";

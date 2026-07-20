@@ -36,6 +36,7 @@ import { useIsOffline, watchConnectivity } from "@/store/network";
 import { dismissOverlays, hasOpenOverlay, shortcutFor } from "@/lib/shortcuts";
 import { fitPopups } from "@/lib/popoverFit";
 import { createDefaultsNow } from "@/lib/createContext";
+import { KumaIcon, KumaLockup } from "./Brand";
 import { SyncBadge } from "./SyncBadge";
 import { SidebarLists } from "./SidebarLists";
 import { BottomNav } from "./BottomNav";
@@ -428,11 +429,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         height: "100vh",
       }}
     >
-      <div
-        style={{ fontSize: 24, color: ACCENT, fontWeight: 700, marginBottom: 8, lineHeight: 1 }}
-        title="Bearry"
-      >
-        ◗
+      <div style={{ marginBottom: 8, lineHeight: 0 }} title="Kuma">
+        <KumaIcon size={30} />
       </div>
       {PRIMARY.map((n) => (
         <RailButton
@@ -499,7 +497,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           borderBottom: "1px solid #17171f",
         }}
       >
-        <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: 0.2 }}>Bearry</span>
+        <KumaLockup height={22} />
       </div>
       <div style={{ flex: 1, overflow: "hidden", padding: "8px 4px 4px" }}>
         <Suspense fallback={null}>
@@ -547,8 +545,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           styles={{ body: { padding: 0, background: "#0d0d13" }, header: { display: "none" } }}
         >
           <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-            <div style={{ padding: "18px 16px 8px", fontSize: 20, fontWeight: 700 }}>
-              <span style={{ color: ACCENT }}>◗</span> Bearry
+            <div style={{ padding: "18px 16px 8px" }}>
+              <KumaLockup height={26} />
             </div>
             <div style={{ padding: "0 6px 6px", display: "flex", flexDirection: "column", gap: 2 }}>
               {PRIMARY.filter((n) => n.key === "/calendar" || n.key === "/events" || n.key === "/plan" || n.key === "/inbox").map(
@@ -688,7 +686,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {isMobile && (
             <Button type="text" icon={<MenuOutlined />} onClick={() => setNavDrawer(true)} />
           )}
-          {isMobile && <span style={{ fontWeight: 700, fontSize: 16 }}>Bearry</span>}
+          {isMobile && <KumaLockup height={20} />}
           <div style={{ flex: 1 }} />
           <SyncBadge />
           {/* Inbox lives in the bottom nav on mobile, badge and all. */}
@@ -770,7 +768,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="rotate-lock" aria-hidden>
         <div className="rotate-lock-icon">↻</div>
         <div className="rotate-lock-text">Rotate to portrait</div>
-        <div className="rotate-lock-sub">Bearry is designed for one hand</div>
+        <div className="rotate-lock-sub">Kuma is designed for one hand</div>
       </div>
     </div>
   );

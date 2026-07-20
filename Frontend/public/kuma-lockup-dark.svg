@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 342.5 96.0" width="342" height="96" role="img" aria-label="Kuma">
+  <defs>
+    <linearGradient id="kumaGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#832062"/>
+      <stop offset="0.5" stop-color="#E85C9C"/>
+      <stop offset="1" stop-color="#F58A5B"/>
+    </linearGradient>
+  </defs>
+  <!-- ICON -->
+  <g transform="translate(6.00 6.00) scale(0.70000)">
+    <rect x="30" y="30" width="54" height="54" rx="16" fill="#832062" opacity="0.55" transform="translate(-13 7) rotate(-11 57 57)"/>
+    <rect x="36" y="30" width="54" height="54" rx="16" fill="#E85C9C" opacity="0.5" transform="translate(13 7) rotate(11 63 57)"/>
+    <rect x="30" y="27" width="60" height="60" rx="18" fill="url(#kumaGrad)"/>
+    <path d="M44 57 L56 69 L80 43" fill="none" stroke="#F1E9E9" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <!-- WORDMARK (Poppins Bold, outlined) -->
+  <g transform="translate(110.00 74.00) scale(0.07429 -0.07429)" fill="#15173D">
+      <path transform="translate(0 0)" d="M469 0 233 310V0H62V702H233V394L467 702H668L396 358L678 0Z"/>
+      <path transform="translate(677 0)" d="M613 558V0H442V76Q416 39 371.5 16.5Q327 -6 273 -6Q209 -6 160.0 22.5Q111 51 84.0 105.0Q57 159 57 232V558H227V255Q227 199 256.0 168.0Q285 137 334 137Q384 137 413.0 168.0Q442 199 442 255V558Z"/>
+      <path transform="translate(1331 0)" d="M1001 326V0H831V303Q831 357 802.5 386.5Q774 416 724 416Q674 416 645.5 386.5Q617 357 617 303V0H447V303Q447 357 418.5 386.5Q390 416 340 416Q290 416 261.5 386.5Q233 357 233 303V0H62V558H233V488Q259 523 301.0 543.5Q343 564 396 564Q459 564 508.5 537.0Q558 510 586 460Q615 506 665.0 535.0Q715 564 774 564Q878 564 939.5 501.0Q1001 438 1001 326Z"/>
+      <path transform="translate(2370 0)" d="M274 566Q333 566 377.5 542.0Q422 518 446 479V558H617V0H446V79Q421 40 376.5 16.0Q332 -8 273 -8Q205 -8 149.0 27.5Q93 63 60.5 128.5Q28 194 28 280Q28 366 60.5 431.0Q93 496 149.0 531.0Q205 566 274 566ZM324 417Q273 417 237.5 380.5Q202 344 202 280Q202 216 237.5 178.5Q273 141 324 141Q375 141 410.5 178.0Q446 215 446 279Q446 343 410.5 380.0Q375 417 324 417Z"/>
+  </g>
+</svg>

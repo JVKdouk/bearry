@@ -217,7 +217,7 @@ export async function deliverDueReminders(now = new Date()): Promise<SweepResult
       }
 
       await sendToUser(reminder.userId, {
-        title: "Bearry",
+        title: "Kuma",
         body: reminderBody(target.title, reminder.offsetMinutes),
         // Every reminder now targets a block, so the deep link follows its
         // kind rather than a targetType that is always the same string.

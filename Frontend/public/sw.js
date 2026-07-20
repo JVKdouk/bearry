@@ -1,4 +1,4 @@
-// Bearry app-shell service worker.
+// Kuma app-shell service worker.
 //
 // `__BUILD_ID__` is replaced at deploy time with the Next.js build id, so every
 // deployment ships a byte-different sw.js. The browser detects the change,
@@ -156,7 +156,7 @@ self.addEventListener("push", (event) => {
     payload = {};
   }
 
-  const title = payload.title || "Bearry";
+  const title = payload.title || "Kuma";
   const options = {
     body: payload.body || "You have a reminder.",
     icon: "/icons/icon-192.png",
@@ -174,7 +174,7 @@ self.addEventListener("push", (event) => {
 /**
  * Clicking should land you on the thing, and should REUSE an open tab rather
  * than opening a second copy of the app — a reminder that leaves you with four
- * Bearry tabs is its own small punishment.
+ * Kuma tabs is its own small punishment.
  */
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();

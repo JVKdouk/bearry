@@ -109,7 +109,7 @@ export function DigestTab() {
         type="info"
         showIcon
         message="Digest settings need a connection"
-        description="Your daily and weekly digests are prepared and emailed by the server. Reconnect to view or change them — nothing else in Bearry is affected."
+        description="Your daily and weekly digests are prepared and emailed by the server. Reconnect to view or change them — nothing else in Kuma is affected."
       />
     );
   }

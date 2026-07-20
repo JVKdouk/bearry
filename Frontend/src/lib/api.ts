@@ -1,4 +1,4 @@
-// Thin fetch wrapper for the Bearry backend. Auth is the httpOnly `token` cookie
+// Thin fetch wrapper for the Kuma backend. Auth is the httpOnly `token` cookie
 // set by /auth/login|signup, so every call sends credentials. The backend CORS
 // allowlist must name this origin (FRONT_END_ORIGIN) with credentials:true.
 

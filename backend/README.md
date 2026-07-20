@@ -1,4 +1,4 @@
-# Bearry backend
+# Kuma backend
 
 Fastify + Prisma + PostgreSQL. Breach-contained and server-decryptable — see
 [../SECURITY.md](../SECURITY.md) for the model and its limits.

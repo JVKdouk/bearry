@@ -129,7 +129,7 @@ function SettingsInner() {
   if (!isNarrow) {
     return (
       <div>
-        <PageHeader title="Settings" subtitle="Tune Bearry to how your brain works" />
+        <PageHeader title="Settings" subtitle="Tune Kuma to how your brain works" />
         <Tabs
           defaultActiveKey="rhythm"
           items={SECTIONS.map((s) => ({
@@ -172,7 +172,7 @@ function SettingsInner() {
 
   return (
     <div>
-      <PageHeader title="Settings" subtitle="Tune Bearry to how your brain works" />
+      <PageHeader title="Settings" subtitle="Tune Kuma to how your brain works" />
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {SECTIONS.map((s) => (
           <button

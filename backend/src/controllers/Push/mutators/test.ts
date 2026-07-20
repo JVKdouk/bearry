@@ -14,7 +14,7 @@ const testPush: Endpoint = async (request) => {
   if (!pushEnabled()) throw new GenericError("Push isn't configured on this server", 503);
 
   const result = await sendToUser(request.user.id, {
-    title: "Bearry",
+    title: "Kuma",
     body: "Notifications are working.",
     url: "/today",
     tag: "test",

@@ -12,10 +12,11 @@ import {
   Typography,
 } from "antd";
 import { LockOutlined } from "@ant-design/icons";
+import { KumaLockup } from "@/components/Brand";
 import { useAuth } from "@/store/auth";
 import { api, ApiError, isOfflineError } from "@/lib/api";
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 function LoginInner() {
   const { message } = AntdApp.useApp();
@@ -95,9 +96,9 @@ function LoginInner() {
         styles={{ body: { padding: "clamp(20px, 5vw, 28px)" } }}
       >
         <div style={{ textAlign: "center", marginBottom: 20 }}>
-          <Title level={2} style={{ margin: 0 }}>
-            Bearry <span className="brand-dot">◗</span>
-          </Title>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
+            <KumaLockup height={44} />
+          </div>
           <Text type="secondary">Your calm ADHD command center</Text>
         </div>
 

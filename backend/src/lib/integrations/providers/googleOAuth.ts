@@ -130,4 +130,4 @@ export async function googleGet<T>(url: string, accessToken: string): Promise<T>
 
 /** The message shown when Google withholds a refresh token on reconnect. */
 export const NO_REFRESH_TOKEN_HELP =
-  "Google didn't return a refresh token. Remove Bearry under your Google Account → Security → Third-party access, then reconnect.";
+  "Google didn't return a refresh token. Remove Kuma under your Google Account → Security → Third-party access, then reconnect.";

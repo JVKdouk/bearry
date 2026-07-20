@@ -1,4 +1,4 @@
-# Bearry — an ADHD-first task manager
+# Kuma — an ADHD-first task manager
 
 A planner that assumes the hard part isn't listing what to do, it's starting.
 The scheduler is deterministic and explains every placement in plain language;
