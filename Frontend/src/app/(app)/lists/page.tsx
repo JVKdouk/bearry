@@ -2,12 +2,13 @@
 
 import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Button, Empty, Segmented, Tooltip } from "antd";
+import { Button, Dropdown, Empty, Grid, Segmented, Tooltip } from "antd";
 import {
   AppstoreOutlined,
   BarsOutlined,
   CheckCircleOutlined,
   FieldTimeOutlined,
+  MoreOutlined,
   PlusOutlined,
   SettingOutlined,
 } from "@ant-design/icons";
@@ -56,6 +57,11 @@ function ListsInner() {
   const openEditList = useUI((s) => s.openEditList);
   const listViews = useUI((s) => s.listViews);
   const setListView = useUI((s) => s.setListView);
+  // Wide enough to lay the view toggle + settings out inline; below it they
+  // collapse into a ⋮ menu so the header stays one row (title left, New task
+  // right) instead of wrapping.
+  const screens = Grid.useBreakpoint();
+  const wide = !!screens.md;
 
   const view: ListView = listViews[listKey] ?? "list";
   const project = projects.find((p) => p.id === listKey);
@@ -100,18 +106,28 @@ function ListsInner() {
           justifyContent: "space-between",
           marginBottom: 18,
           gap: 12,
-          flexWrap: "wrap",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        {/* Title left — shrinks and ellipses so it never pushes the actions off. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
           {project && (
-            <span style={{ width: 12, height: 12, borderRadius: "50%", background: project.color }} />
+            <span style={{ width: 12, height: 12, borderRadius: "50%", background: project.color, flexShrink: 0 }} />
           )}
-          <h1 className="hero-title">{title}</h1>
-          <span style={{ fontSize: 14, color: "#6f6f80" }}>{scoped.filter((t) => t.status !== "done").length}</span>
+          <h1
+            className="hero-title"
+            style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}
+          >
+            {title}
+          </h1>
+          <span style={{ fontSize: 14, color: "#6f6f80", flexShrink: 0 }}>
+            {scoped.filter((t) => t.status !== "done").length}
+          </span>
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          {!isCompleted && (
+
+        {/* Actions right. Wide: view toggle + settings inline. Narrow: both fold
+            into a ⋮ menu. New task always sits at the far right. */}
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
+          {wide && !isCompleted && (
             <Segmented
               value={view}
               onChange={(v) => setListView(listKey, v as ListView)}
@@ -125,9 +141,7 @@ function ListsInner() {
               }))}
             />
           )}
-          {/* List settings live here now (moved off the cramped sidebar gear):
-              a real, header-sized target on the page for the list you're in. */}
-          {project && !readOnly && (
+          {wide && project && !readOnly && (
             <Tooltip title="List settings">
               <Button
                 aria-label="List settings"
@@ -135,6 +149,41 @@ function ListsInner() {
                 onClick={() => openEditList(project.id)}
               />
             </Tooltip>
+          )}
+          {!wide && (!isCompleted || (project && !readOnly)) && (
+            <Dropdown
+              trigger={["click"]}
+              menu={{
+                selectable: !isCompleted,
+                selectedKeys: !isCompleted ? [`view:${view}`] : [],
+                items: [
+                  ...(isCompleted
+                    ? []
+                    : [
+                        { key: "view-h", type: "group" as const, label: "View" },
+                        ...VIEW_OPTS.map((o) => ({
+                          key: `view:${o.value}`,
+                          icon: o.icon,
+                          label: o.label,
+                          onClick: () => setListView(listKey, o.value as ListView),
+                        })),
+                      ]),
+                  ...(project && !readOnly
+                    ? [
+                        ...(isCompleted ? [] : [{ type: "divider" as const }]),
+                        {
+                          key: "settings",
+                          icon: <SettingOutlined />,
+                          label: "List settings",
+                          onClick: () => openEditList(project.id),
+                        },
+                      ]
+                    : []),
+                ],
+              }}
+            >
+              <Button aria-label="More options" icon={<MoreOutlined />} />
+            </Dropdown>
           )}
           {!readOnly && (
             <Button type="primary" icon={<PlusOutlined />} onClick={addTask}>
@@ -149,6 +198,7 @@ function ListsInner() {
                 border: "1px solid #2a2a37",
                 borderRadius: 8,
                 padding: "4px 10px",
+                flexShrink: 0,
               }}
             >
               View only
