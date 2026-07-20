@@ -18,6 +18,15 @@ import {
   type Persona,
 } from "./persona";
 import { isChunkable } from "./chunking";
+import {
+  zonedParts,
+  zonedWeekday,
+  zonedMinutesOfDay,
+  zonedWallToUtc,
+  zonedDayKey,
+  zonedStartOfDay,
+  zonedNextDay,
+} from "./tz";
 import type {
   SchedulerInput,
   ScheduleProposal,
@@ -43,23 +52,23 @@ function hhmmToMinutes(hhmm: string): number {
   return h * 60 + m;
 }
 
-function atLocalMinutes(day: Date, minutes: number): Date {
-  const d = new Date(day);
-  d.setHours(0, 0, 0, 0);
-  return new Date(d.getTime() + minutes * MS_PER_MIN);
+/** The UTC instant of `minutes` past local midnight on `day`, in `tz`. */
+function atLocalMinutes(day: Date, minutes: number, tz: string): Date {
+  const p = zonedParts(day, tz);
+  return zonedWallToUtc(p.year, p.month, p.day, Math.floor(minutes / 60), minutes % 60, tz);
 }
 
 /** A candidate open slot with the energy level and time-block region covering it. */
 type FreeSlot = { start: Date; end: Date; energy: EnergyLevel; category: LifeArea | null };
 
 /** Concrete intervals on `day` for the regions that pass `pred` (from dayMask + HH:MM). */
-function regionIntervalsForDay(day: Date, regions: Region[]): { start: Date; end: Date }[] {
-  const bit = 1 << day.getDay();
+function regionIntervalsForDay(day: Date, regions: Region[], tz: string): { start: Date; end: Date }[] {
+  const bit = 1 << zonedWeekday(day, tz);
   const out: { start: Date; end: Date }[] = [];
   for (const r of regions) {
     if ((r.dayMask & bit) === 0) continue;
-    const start = atLocalMinutes(day, hhmmToMinutes(r.start));
-    const end = atLocalMinutes(day, hhmmToMinutes(r.end));
+    const start = atLocalMinutes(day, hhmmToMinutes(r.start), tz);
+    const end = atLocalMinutes(day, hhmmToMinutes(r.end), tz);
     if (end > start) out.push({ start, end });
   }
   return out;
@@ -81,9 +90,9 @@ function unionWindows(wins: { start: Date; end: Date }[]): { start: Date; end: D
 }
 
 /** Which available-region category (if any) covers this instant (§8.4). */
-function categoryAt(date: Date, availableRegions: Region[]): LifeArea | null {
-  const bit = 1 << date.getDay();
-  const mins = date.getHours() * 60 + date.getMinutes();
+function categoryAt(date: Date, availableRegions: Region[], tz: string): LifeArea | null {
+  const bit = 1 << zonedWeekday(date, tz);
+  const mins = zonedMinutesOfDay(date, tz);
   for (const r of availableRegions) {
     if ((r.dayMask & bit) === 0) continue;
     if (mins >= hhmmToMinutes(r.start) && mins < hhmmToMinutes(r.end)) return r.category;
@@ -92,9 +101,9 @@ function categoryAt(date: Date, availableRegions: Region[]): LifeArea | null {
 }
 
 /** Energy level at a given instant from the windows (default medium). */
-function energyAt(date: Date, windows: SchedulerInput["energyWindows"]): EnergyLevel {
-  const weekdayBit = 1 << date.getDay();
-  const mins = date.getHours() * 60 + date.getMinutes();
+function energyAt(date: Date, windows: SchedulerInput["energyWindows"], tz: string): EnergyLevel {
+  const weekdayBit = 1 << zonedWeekday(date, tz);
+  const mins = zonedMinutesOfDay(date, tz);
   for (const w of windows) {
     if ((w.dayMask & weekdayBit) === 0) continue;
     const s = hhmmToMinutes(w.start);
@@ -125,6 +134,7 @@ function subtractBusy(winStart: Date, winEnd: Date, busy: FixedInterval[]): { st
  * carries a single energy level (lets us place demanding work in high windows).
  */
 function buildFreeSlots(input: SchedulerInput): FreeSlot[] {
+  const tz = input.timezone || "UTC";
   const slots: FreeSlot[] = [];
   const regions = input.regions ?? [];
   // Available regions define/extend schedulable time and tag it by life area;
@@ -132,18 +142,20 @@ function buildFreeSlots(input: SchedulerInput): FreeSlot[] {
   const availableRegions = regions.filter((r) => !HARD_OFF.has(r.category));
   const offRegions = regions.filter((r) => HARD_OFF.has(r.category));
 
-  const day = new Date(input.horizonStart);
-  day.setHours(0, 0, 0, 0);
+  // Walk local calendar days in the user's zone — local midnight to local
+  // midnight — so a day is that person's day, wherever they are (and however DST
+  // stretched it), not the server's.
+  let day = zonedStartOfDay(input.horizonStart, tz);
 
   while (day <= input.horizonEnd) {
     // Availability = working-hours windows ∪ available time-block regions.
-    const whWindows = (input.workingHours[String(day.getDay())] ?? []).map((w) => ({
-      start: atLocalMinutes(day, hhmmToMinutes(w.start)),
-      end: atLocalMinutes(day, hhmmToMinutes(w.end)),
+    const whWindows = (input.workingHours[String(zonedWeekday(day, tz))] ?? []).map((w) => ({
+      start: atLocalMinutes(day, hhmmToMinutes(w.start), tz),
+      end: atLocalMinutes(day, hhmmToMinutes(w.end), tz),
     }));
-    const availability = unionWindows([...whWindows, ...regionIntervalsForDay(day, availableRegions)]);
+    const availability = unionWindows([...whWindows, ...regionIntervalsForDay(day, availableRegions, tz)]);
     // Busy = fixed commitments ∪ protected (off) regions on this day.
-    const busyForDay: FixedInterval[] = [...input.busy, ...regionIntervalsForDay(day, offRegions)];
+    const busyForDay: FixedInterval[] = [...input.busy, ...regionIntervalsForDay(day, offRegions, tz)];
 
     for (const win of availability) {
       let winStart = win.start;
@@ -157,12 +169,12 @@ function buildFreeSlots(input: SchedulerInput): FreeSlot[] {
         // Split each free interval at energy AND region-category boundaries by
         // walking in 15-min steps and grouping same-(energy,category) runs.
         let runStart = free.start;
-        let runEnergy = energyAt(free.start, input.energyWindows);
-        let runCat = categoryAt(free.start, availableRegions);
+        let runEnergy = energyAt(free.start, input.energyWindows, tz);
+        let runCat = categoryAt(free.start, availableRegions, tz);
         for (let t = free.start.getTime() + 15 * MS_PER_MIN; t <= free.end.getTime(); t += 15 * MS_PER_MIN) {
           const at = new Date(t);
-          const e = energyAt(at, input.energyWindows);
-          const c = categoryAt(at, availableRegions);
+          const e = energyAt(at, input.energyWindows, tz);
+          const c = categoryAt(at, availableRegions, tz);
           if (e !== runEnergy || c !== runCat) {
             slots.push({ start: runStart, end: at, energy: runEnergy, category: runCat });
             runStart = at;
@@ -173,7 +185,7 @@ function buildFreeSlots(input: SchedulerInput): FreeSlot[] {
         if (free.end > runStart) slots.push({ start: runStart, end: free.end, energy: runEnergy, category: runCat });
       }
     }
-    day.setDate(day.getDate() + 1);
+    day = zonedNextDay(day, tz);
   }
   return slots.sort((a, b) => a.start.getTime() - b.start.getTime());
 }
@@ -259,18 +271,20 @@ type DayState = {
   lastAvoidedEnd: Date | null;
 };
 
-const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-const isWeekend = (d: Date) => d.getDay() === 0 || d.getDay() === 6;
+const isWeekend = (d: Date, tz: string) => {
+  const wd = zonedWeekday(d, tz);
+  return wd === 0 || wd === 6;
+};
 
 /** Reasons a day can refuse more work — surfaced so the UI can explain itself. */
 type Refusal = "budget" | "sessions" | "dread" | "deadline" | null;
 
-function dayStateFor(states: Map<string, DayState>, day: Date, p: Persona): DayState {
-  const key = dayKey(day);
+function dayStateFor(states: Map<string, DayState>, day: Date, p: Persona, tz: string): DayState {
+  const key = zonedDayKey(day, tz);
   const existing = states.get(key);
   if (existing) return existing;
 
-  const factor = isWeekend(day) ? weekendFactor(p) : 1;
+  const factor = isWeekend(day, tz) ? weekendFactor(p) : 1;
   const fresh: DayState = {
     used: 0,
     budget: Math.round(p.dailyMaxMinutes * commitmentFactor(p) * factor),
@@ -311,6 +325,8 @@ function placeSession(
   notBefore: Date | null,
   /** Nothing may finish after this — a due-by task's own deadline. */
   notAfter: Date | null,
+  /** The user's zone, for per-day budgets/caps. */
+  tz: string,
 ): { start: Date; end: Date; energy: EnergyLevel; category: LifeArea | null; refusal: Refusal } {
   const minMs = minMinutes * MS_PER_MIN;
   const overrun = overrunBufferFor(p);
@@ -334,7 +350,7 @@ function placeSession(
         refusal = refusal ?? "deadline";
         return false;
       }
-      const st = dayStateFor(states, x.usableStart, p);
+      const st = dayStateFor(states, x.usableStart, p, tz);
       if (st.sessionCap === 0) return false; // e.g. weekends when opted out
       if (st.used + minMinutes > st.budget) {
         refusal = refusal ?? "budget";
@@ -382,7 +398,7 @@ function placeSession(
 
   const slot = feasible[0].s;
   const start = new Date(feasible[0].usableStart);
-  const st = dayStateFor(states, start, p);
+  const st = dayStateFor(states, start, p, tz);
 
   // Size the piece to fill what's actually here — up to the ideal max, but never
   // past the slot's room, the day's remaining budget, or the deadline. This is
@@ -483,6 +499,7 @@ function orderByDependencies(
 /** Run the solver. Deterministic given the input (§1.4 p5). */
 export function solve(input: SchedulerInput): ScheduleProposal {
   const now = input.horizonStart;
+  const tz = input.timezone || "UTC";
   const persona = input.persona ?? DEFAULT_PERSONA;
   // Explicit per-call overrides still win, so existing callers and tests that
   // pass minBreak/maxFocus keep their behaviour.
@@ -600,7 +617,7 @@ export function solve(input: SchedulerInput): ScheduleProposal {
     for (let guard = 0; remaining > 0 && guard < 500; guard++) {
       const maxSize = willChunk ? Math.min(maxChunkCap, remaining) : remaining;
       const minSize = willChunk ? Math.min(minChunkFloor, remaining) : remaining;
-      const placement = placeSession(task, minSize, maxSize, slots, dayStates, p, floor, deadlineCap);
+      const placement = placeSession(task, minSize, maxSize, slots, dayStates, p, floor, deadlineCap, tz);
       if (placement.refusal !== null || placement.end.getTime() === 0) {
         failed = true;
         refusal = placement.refusal;

@@ -63,6 +63,12 @@ export type SchedulerInput = {
   /** Planning horizon. */
   horizonStart: Date;
   horizonEnd: Date;
+  /**
+   * The user's IANA timezone (e.g. "America/Sao_Paulo"). Working hours, energy
+   * windows and day boundaries are wall-clock and resolved in this zone, not the
+   * server's. Absent falls back to UTC.
+   */
+  timezone?: string;
   /** Minimum minutes between focus blocks (soft). */
   minBreak?: number;
   /** Longest single focus block (chunk cap fallback). */

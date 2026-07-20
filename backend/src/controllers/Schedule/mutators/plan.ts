@@ -9,6 +9,9 @@ const Body = z.object({
   // Plan only these tasks (swipe-to-plan one card, or a bulk selection).
   // Omitted / empty ⇒ plan everything schedulable in the horizon.
   taskIds: z.array(z.string()).max(200).optional(),
+  // The device's IANA timezone, so working hours and days resolve in the user's
+  // zone rather than the server's. Persisted to the profile on the way through.
+  timezone: z.string().max(64).optional(),
 });
 
 /**
@@ -26,6 +29,7 @@ const plan: Endpoint = async (request) => {
 
   const proposal = await planForUser(request.user.id, horizonStart, horizonEnd, {
     taskIds: b.taskIds,
+    timezone: b.timezone,
   });
   return proposal;
 };

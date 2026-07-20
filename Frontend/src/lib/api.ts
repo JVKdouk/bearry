@@ -223,7 +223,9 @@ export const api = {
   plan: (body?: { horizonStart?: string; horizonEnd?: string; taskIds?: string[] }) =>
     request<ScheduleProposal>("/schedule/plan", {
       method: "POST",
-      body: body ?? {},
+      // Always tell the server this device's zone, so working hours and days are
+      // resolved where the user actually is rather than where the server runs.
+      body: { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(body ?? {}) },
     }),
   applyPlan: (
     blocks: { taskId: string; start: string; end: string; reason: string }[],

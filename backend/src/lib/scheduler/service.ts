@@ -23,7 +23,7 @@ export async function planForUser(
   userId: string,
   horizonStart: Date,
   horizonEnd: Date,
-  opts: { taskIds?: string[] } = {},
+  opts: { taskIds?: string[]; timezone?: string } = {},
 ): Promise<ScheduleProposal> {
   // Plan only these tasks, when asked (swipe-to-plan a single card, or a bulk
   // selection). Everything else the user has still counts as busy/blocking —
@@ -115,7 +115,17 @@ export async function planForUser(
   // The planner must never relocate these; it excludes them from scheduling and
   // treats them as busy at their own time. Without this a task with a defined
   // time was floated into a random slot this week merely because it wasn't done.
-  const tz = profile.timezone || "UTC";
+  // The client sends the device's real zone on every plan; trust it over the
+  // stored value (which starts at the "UTC" default until first heard) and keep
+  // the profile current for jobs that plan without a client. Everything that
+  // reads wall-clock — appointment detection, the solver's working hours, energy
+  // windows and day boundaries — uses this one zone.
+  const tz = opts.timezone || profile.timezone || "UTC";
+  if (opts.timezone && opts.timezone !== profile.timezone) {
+    await database.scheduleProfile
+      .updateMany({ where: { userId }, data: { timezone: opts.timezone } })
+      .catch(() => {});
+  }
   const nowMs = Date.now();
   const fixedTaskIds = new Set<string>();
   for (const t of candidates) {
@@ -232,6 +242,7 @@ export async function planForUser(
     regions: regions.map((r) => ({ category: r.category, dayMask: r.dayMask, start: r.start, end: r.end })),
     horizonStart,
     horizonEnd,
+    timezone: tz,
     persona,
     // Edges whose blocker is finished (or no longer exists) are dropped above,
     // so everything left here is a constraint the solver must honour.

@@ -42,7 +42,15 @@ export async function ensureScheduleProfile(userId: string) {
   });
   if (existing) return existing;
   return database.scheduleProfile.create({
-    data: { userId, name: "Default", workingHours: DEFAULT_WORKING_HOURS, timezone: "UTC" },
+    // Default to the server's own zone, not UTC: it's the closest guess before
+    // the client has sent the device's real zone (which it does on first plan),
+    // and it keeps behaviour sane for any server-side job that plans meanwhile.
+    data: {
+      userId,
+      name: "Default",
+      workingHours: DEFAULT_WORKING_HOURS,
+      timezone: process.env.TZ || "UTC",
+    },
   });
 }
 

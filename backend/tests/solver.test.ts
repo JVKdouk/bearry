@@ -23,6 +23,10 @@ function baseInput(tasks: SchedulableTask[], overrides: Partial<SchedulerInput> 
     regions: [],
     horizonStart,
     horizonEnd,
+    // Dates above are built in the host zone (new Date(y,m,d,...)), so resolve
+    // wall-clock in that same zone — the tz-aware solver then reproduces the
+    // server-local behaviour these tests were written against, on any host.
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     ...overrides,
   };
 }
@@ -191,4 +195,24 @@ test("a splittable task sizes pieces to the gap instead of a fixed session lengt
     .map((b) => Math.round((b.end.getTime() - b.start.getTime()) / 60000));
   assert.ok(monday.length > 0, "should place a piece in Monday's 60-min window");
   for (const m of monday) assert.ok(m <= 60, `Monday piece ${m}m overflowed the 60-min gap`);
+});
+
+test("working hours resolve in the user's timezone, not the server's", () => {
+  // 09:00 working hours for a New York user in July (EDT, UTC-4) must land the
+  // task at 13:00 UTC — regardless of where the server runs. A task due
+  // mid-window, one hour, no energy windows.
+  const from = new Date("2026-07-20T00:00:00.000Z");
+  const to = new Date("2026-07-21T00:00:00.000Z");
+  const out = solve(
+    baseInput([task("a", 60)], {
+      timezone: "America/New_York",
+      horizonStart: from,
+      horizonEnd: to,
+      workingHours: { "1": [{ start: "09:00", end: "17:00" }] }, // Monday
+    }),
+  );
+  assert.equal(out.blocks.length, 1);
+  const h = out.blocks[0].start.getUTCHours();
+  // 09:00–17:00 EDT == 13:00–21:00 UTC. The block must start no earlier than 13.
+  assert.ok(h >= 13 && h < 21, `started at ${out.blocks[0].start.toISOString()} (UTC hour ${h})`);
 });
