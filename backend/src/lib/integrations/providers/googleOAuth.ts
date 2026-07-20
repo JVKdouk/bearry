@@ -59,9 +59,12 @@ export function authUrlFor(providerId: string, scope: string, state: string): st
     response_type: "code",
     // Offline access + forced consent is what makes Google return a refresh
     // token; without `prompt=consent` a re-authorisation returns none and the
-    // connection silently can't be renewed.
+    // connection silently can't be renewed. `select_account` shows the account
+    // chooser so a SECOND Google account can actually be added — without it
+    // Google silently reuses the one already signed in, and "add another
+    // account" just re-links the first one.
     access_type: "offline",
-    prompt: "consent",
+    prompt: "select_account consent",
     include_granted_scopes: "true",
     scope,
     state,

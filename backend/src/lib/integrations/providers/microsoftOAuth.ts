@@ -62,8 +62,9 @@ export function authUrlFor(providerId: string, scope: string, state: string): st
     response_type: "code",
     response_mode: "query",
     // Force the consent screen so a re-authorisation still returns a refresh
-    // token rather than silently reusing a prior grant.
-    prompt: "consent",
+    // token rather than silently reusing a prior grant. `select_account` also
+    // shows the account chooser so a second Microsoft account can be added.
+    prompt: "select_account consent",
     scope,
     state,
   });
