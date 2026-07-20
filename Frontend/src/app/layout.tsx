@@ -19,6 +19,11 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  // Required for env(safe-area-inset-*) to report real values on notched phones.
+  // The app's CSS already pads by those insets (bottom nav, drawers, page body);
+  // without viewport-fit=cover they resolve to 0 and content slides under the
+  // home indicator and notch.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

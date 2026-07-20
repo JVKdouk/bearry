@@ -389,7 +389,7 @@ export default function IntegrationsPage() {
         onOk={submitSecret}
         okText="Connect"
         okButtonProps={{ disabled: !secret.trim(), loading: busy === secretFor?.id }}
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <label style={{ fontSize: 13, color: "#c9c9d6" }}>
