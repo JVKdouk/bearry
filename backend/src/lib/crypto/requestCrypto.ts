@@ -1,8 +1,10 @@
 /**
  * Per-request crypto context. One call resolves the user's DEK through the guard
  * (cache hit, or logged + rate-limited KEK unwrap) and returns bound helpers, so
- * endpoints read as `const c = await requestCrypto(req); c.encrypt("Todo", data)`
- * without ever touching keys directly.
+ * endpoints read as `const c = await requestCrypto(req); c.encrypt("Block", data)`
+ * without ever touching keys directly. The model name must be a live key in the
+ * field map — a dead one ("Todo", "CalendarEvent") silently encrypts nothing and
+ * stores plaintext, which then fails to open on read.
  */
 
 import type { FastifyRequest } from "fastify";
