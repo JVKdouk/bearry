@@ -31,6 +31,10 @@ import { describeRepeat, repeatOptions } from "@/lib/recurrence";
 import { CustomRepeat } from "@/components/CustomRepeat";
 import { durationLabel } from "@/lib/format";
 import { clampMinutes, durationInputValue, parseDuration } from "@/lib/duration";
+import type { ScheduleMode } from "@/lib/schedule";
+
+/** The default time-of-day a task is pinned to when you switch it to "Starts at". */
+const DEFAULT_START_HOUR = 9;
 
 const MUTED = "#a9a9b8";
 const FAINT = "#6f6f80";
@@ -56,6 +60,8 @@ export interface ScheduleValue {
   time: Dayjs | null;
   duration: number;
   recurrenceRule: string | null;
+  /** "by" = flexible deadline the planner works before; "at" = fixed time. */
+  mode: ScheduleMode;
 }
 
 interface Props {
@@ -168,13 +174,45 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
 
   const selectedKey = value.date?.format("YYYY-MM-DD");
 
+  // A quick-pick's own time (e.g. "Tonight") only applies in "Starts at" mode —
+  // in "Due by" a task floats, so the time is dropped.
   function pick(date: Dayjs, time?: Dayjs) {
-    onChange({ date, ...(time ? { time } : {}) });
+    onChange({ date, ...(value.mode === "at" && time ? { time } : {}) });
     setMonth(date);
+  }
+
+  // Switching mode keeps a sensible time: "Starts at" always needs one, so it
+  // defaults to 9am when none is set; "Due by" drops it (a floating deadline
+  // has no time of day).
+  function setMode(mode: ScheduleMode) {
+    if (mode === value.mode) return;
+    if (mode === "at") {
+      onChange({ mode, time: value.time ?? dayjs().hour(DEFAULT_START_HOUR).minute(0).second(0) });
+    } else {
+      onChange({ mode, time: null });
+    }
   }
 
   return (
     <div style={{ width: 300, maxWidth: "100%" }}>
+      {/* The choice that used to be invisible: is this a deadline the planner
+          works before, or a fixed time it happens at? */}
+      <Segmented
+        block
+        value={value.mode}
+        onChange={(v) => setMode(v as ScheduleMode)}
+        options={[
+          { label: "Due by", value: "by", icon: <CalendarOutlined /> },
+          { label: "Starts at", value: "at", icon: <ClockCircleOutlined /> },
+        ]}
+        style={{ marginBottom: 10 }}
+      />
+      <p style={{ fontSize: 11.5, color: FAINT, margin: "0 0 12px", lineHeight: 1.5 }}>
+        {value.mode === "by"
+          ? "Flexible — the planner finds time to do it before this date."
+          : "Fixed — it happens exactly then and the planner won't move it."}
+      </p>
+
       <Segmented
         block
         size="small"
@@ -291,6 +329,10 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
             })}
           </div>
 
+          {/* Time of day only matters for a fixed "Starts at" — a "Due by" task
+              floats to wherever the planner fits it, so there's no time to set. */}
+          {value.mode === "at" && (
+          <>
           <Row icon={<ClockCircleOutlined />} label="Time">
             {/* Native time input: on a phone this opens the OS time picker — a
                 real, large control — instead of antd's cramped scroll wheel.
@@ -367,6 +409,8 @@ export function SchedulePopover({ value, onChange, onClear, onClose }: Props) {
               </button>
             )}
           </div>
+          </>
+          )}
 
           {/* Repeat needs a date to repeat FROM, so it only appears with one —
               a rule with no anchor is dead config. */}

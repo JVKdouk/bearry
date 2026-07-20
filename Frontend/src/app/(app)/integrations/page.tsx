@@ -6,6 +6,7 @@ import {
   App as AntdApp,
   Button,
   Checkbox,
+  Drawer,
   Empty,
   Input,
   Modal,
@@ -18,6 +19,7 @@ import {
   CloudOutlined,
   DisconnectOutlined,
   PlusOutlined,
+  SettingOutlined,
   SyncOutlined,
 } from "@ant-design/icons";
 import { PageHeader } from "@/components/PageHeader";
@@ -58,6 +60,10 @@ export default function IntegrationsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [secretFor, setSecretFor] = useState<Integration | null>(null);
   const [secret, setSecret] = useState("");
+  // The provider whose settings drawer is open. Held by id, not object, so the
+  // drawer re-reads the live list after a sync/disconnect/group change instead
+  // of showing a stale snapshot.
+  const [settingsForId, setSettingsForId] = useState<string | null>(null);
   // Integrations are the one area that genuinely cannot work offline — every
   // action round-trips to a third-party service. The page stays readable so you
   // can still see what's connected; the controls go inert.
@@ -182,6 +188,7 @@ export default function IntegrationsPage() {
   }
 
   const connected = list.filter((i) => i.connected).length;
+  const settingsProvider = list.find((p) => p.id === settingsForId) ?? null;
 
   return (
     <div>
@@ -282,76 +289,41 @@ export default function IntegrationsPage() {
                   {!p.available && <Tag bordered={false}>coming soon</Tag>}
                 </div>
 
-                {/* One row per connected account — a provider can hold several */}
+                {/* Compact account summary — one dim line per connected account.
+                    Syncing, disconnecting and choosing what to import all live in
+                    the settings drawer now, so the card stays a glanceable status. */}
                 {connectionsOf(p).length > 0 && (
-                  <div style={{ borderTop: "1px solid #1c1c26", paddingTop: 12, marginBottom: 12 }}>
+                  <div
+                    style={{
+                      borderTop: "1px solid #1c1c26",
+                      paddingTop: 12,
+                      marginBottom: 12,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 6,
+                    }}
+                  >
                     {connectionsOf(p).map((c) => (
-                      <div key={c.id} style={{ marginBottom: 12 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span
-                            style={{
-                              width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
-                              background: c.connected ? "#7ee36b" : "#6f6f80",
-                            }}
-                          />
-                          <span
-                            style={{
-                              flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 600,
-                              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                            }}
-                            title={c.accountKey}
-                          >
-                            {c.label}
-                          </span>
-                          <Tooltip
-                            title={
-                              offline
-                                ? "Syncing needs a connection"
-                                : p.capabilities?.pull
-                                  ? "Sync this account"
-                                  : "This provider can't import"
-                            }
-                          >
-                            <Button
-                              size="small"
-                              icon={<SyncOutlined />}
-                              loading={busy === c.id}
-                              disabled={offline || !p.capabilities?.pull}
-                              onClick={() => syncOne(c)}
-                            />
-                          </Tooltip>
-                          <Tooltip title={offline ? "Needs a connection" : "Disconnect this account"}>
-                            <Button
-                              size="small"
-                              danger
-                              type="text"
-                              icon={<DisconnectOutlined />}
-                              loading={busy === c.id}
-                              disabled={offline}
-                              onClick={() => disconnectOne(c)}
-                            />
-                          </Tooltip>
-                        </div>
-
+                      <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <span
+                          style={{
+                            width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+                            background: c.connected ? "#7ee36b" : "#6f6f80",
+                          }}
+                        />
+                        <span
+                          style={{
+                            flex: 1, minWidth: 0, fontSize: 13, color: "#c9c9d6",
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }}
+                          title={c.accountKey}
+                        >
+                          {c.label}
+                        </span>
                         {c.lastSyncedAt && (
-                          <div style={{ fontSize: 11.5, color: "#6f6f80", marginTop: 3, marginLeft: 15 }}>
-                            Last synced {new Date(c.lastSyncedAt).toLocaleString()}
-                          </div>
-                        )}
-
-                        {c.groups && c.groups.length > 0 && (
-                          <div style={{ marginTop: 8, marginLeft: 15 }}>
-                            <div style={{ fontSize: 11, letterSpacing: 0.5, color: "#6f6f80", textTransform: "uppercase", marginBottom: 6 }}>
-                              Import from
-                            </div>
-                            <Checkbox.Group
-                              disabled={offline}
-                              style={{ display: "flex", flexDirection: "column", gap: 4 }}
-                              defaultValue={c.selectedGroups ?? c.groups.map((g) => g.id)}
-                              options={c.groups.map((g) => ({ label: g.label, value: g.id }))}
-                              onChange={(vals) => saveGroups(c, vals)}
-                            />
-                          </div>
+                          <span style={{ fontSize: 11, color: "#6f6f80", flexShrink: 0 }}>
+                            {new Date(c.lastSyncedAt).toLocaleDateString()}
+                          </span>
                         )}
                       </div>
                     ))}
@@ -359,26 +331,137 @@ export default function IntegrationsPage() {
                 )}
 
                 <div style={{ display: "flex", gap: 8 }}>
-                  <Button
-                    type={connectionsOf(p).length > 0 ? "default" : "primary"}
-                    block
-                    icon={connectionsOf(p).length > 0 ? <PlusOutlined /> : undefined}
-                    disabled={offline || !p.available || (connectionsOf(p).length > 0 && !p.multiAccount)}
-                    loading={busy === p.id}
-                    onClick={() => connect(p)}
-                  >
-                    {connectionsOf(p).length === 0
-                      ? "Connect"
-                      : p.multiAccount
-                        ? "Add another account"
-                        : "Connected"}
-                  </Button>
+                  {connectionsOf(p).length === 0 ? (
+                    <Button
+                      type="primary"
+                      block
+                      disabled={offline || !p.available}
+                      loading={busy === p.id}
+                      onClick={() => connect(p)}
+                    >
+                      Connect
+                    </Button>
+                  ) : (
+                    <Button
+                      block
+                      icon={<SettingOutlined />}
+                      disabled={offline}
+                      onClick={() => setSettingsForId(p.id)}
+                    >
+                      Manage
+                    </Button>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {/* Per-provider settings: every connected account, its sync/disconnect,
+          what it imports, and "add another account". Lifted out of the card so
+          the grid stays scannable and a provider with several accounts and long
+          list names doesn't make one card tower over the rest. */}
+      <Drawer
+        open={!!settingsProvider}
+        onClose={() => setSettingsForId(null)}
+        title={settingsProvider ? `${settingsProvider.name ?? settingsProvider.id} settings` : ""}
+        width={440}
+        destroyOnHidden
+        styles={{ body: { background: "#0d0d13" }, header: { background: "#0d0d13" } }}
+      >
+        {settingsProvider && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {connectionsOf(settingsProvider).length === 0 && (
+              <Empty description="No accounts connected" />
+            )}
+            {connectionsOf(settingsProvider).map((c) => (
+              <div
+                key={c.id}
+                style={{ border: "1px solid #1c1c26", borderRadius: 12, padding: 14, background: "#12121a" }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span
+                    style={{
+                      width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                      background: c.connected ? "#7ee36b" : "#6f6f80",
+                    }}
+                  />
+                  <span
+                    style={{
+                      flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}
+                    title={c.accountKey}
+                  >
+                    {c.label}
+                  </span>
+                  <Tooltip
+                    title={
+                      offline
+                        ? "Syncing needs a connection"
+                        : settingsProvider.capabilities?.pull
+                          ? "Sync this account"
+                          : "This provider can't import"
+                    }
+                  >
+                    <Button
+                      size="small"
+                      icon={<SyncOutlined />}
+                      loading={busy === c.id}
+                      disabled={offline || !settingsProvider.capabilities?.pull}
+                      onClick={() => syncOne(c)}
+                    />
+                  </Tooltip>
+                  <Tooltip title={offline ? "Needs a connection" : "Disconnect this account"}>
+                    <Button
+                      size="small"
+                      danger
+                      type="text"
+                      icon={<DisconnectOutlined />}
+                      loading={busy === c.id}
+                      disabled={offline}
+                      onClick={() => disconnectOne(c)}
+                    />
+                  </Tooltip>
+                </div>
+
+                {c.lastSyncedAt && (
+                  <div style={{ fontSize: 12, color: "#6f6f80", marginTop: 6, marginLeft: 16 }}>
+                    Last synced {new Date(c.lastSyncedAt).toLocaleString()}
+                  </div>
+                )}
+
+                {c.groups && c.groups.length > 0 && (
+                  <div style={{ marginTop: 12, marginLeft: 16 }}>
+                    <div style={{ fontSize: 11, letterSpacing: 0.5, color: "#6f6f80", textTransform: "uppercase", marginBottom: 8 }}>
+                      Import from
+                    </div>
+                    <Checkbox.Group
+                      disabled={offline}
+                      style={{ display: "flex", flexDirection: "column", gap: 8 }}
+                      defaultValue={c.selectedGroups ?? c.groups.map((g) => g.id)}
+                      options={c.groups.map((g) => ({ label: g.label, value: g.id }))}
+                      onChange={(vals) => saveGroups(c, vals)}
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {settingsProvider.multiAccount && (
+              <Button
+                icon={<PlusOutlined />}
+                loading={busy === settingsProvider.id}
+                disabled={offline || !settingsProvider.available}
+                onClick={() => connect(settingsProvider)}
+              >
+                Add another account
+              </Button>
+            )}
+          </div>
+        )}
+      </Drawer>
 
       {/* Credential prompt for token / apikey providers, driven by the manifest
           so a new provider describes its own input with no frontend changes. */}

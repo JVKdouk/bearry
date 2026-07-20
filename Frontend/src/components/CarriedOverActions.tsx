@@ -18,7 +18,7 @@ import { CalendarOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
 import { SchedulePopover, type ScheduleValue } from "@/components/SchedulePopover";
-import { schedulePatch } from "@/lib/schedule";
+import { schedulePatch, type ScheduleMode } from "@/lib/schedule";
 import { rescheduleReminders } from "@/lib/reminders";
 import { useSync } from "@/store/sync";
 import { useCollection } from "@/store/hooks";
@@ -58,6 +58,9 @@ export function CarriedOverActions({ task }: { task: Block }) {
   const date = task.startTime ? dayjs(task.startTime) : task.deadline ? dayjs(task.deadline) : null;
   const time = task.startTime ? dayjs(task.startTime) : null;
   const duration = task.estimatedDuration || 30;
+  // A start time is a fixed appointment; a bare deadline floats. Derived, not
+  // stored — applySchedule writes the block, so the next render reflects a flip.
+  const mode: ScheduleMode = task.startTime ? "at" : "by";
 
   function moveReminders(start: Date | null) {
     for (const patch of rescheduleReminders(reminders, start)) {
@@ -69,12 +72,13 @@ export function CarriedOverActions({ task }: { task: Block }) {
     const d = next.date !== undefined ? next.date : date;
     const t = next.time !== undefined ? next.time : time;
     const dur = next.duration !== undefined ? next.duration : duration;
+    const m = next.mode !== undefined ? next.mode : mode;
     update("block", task.id, {
-      ...schedulePatch(d, t, dur),
+      ...schedulePatch(m, d, t, dur),
       ...(next.recurrenceRule !== undefined ? { recurrenceRule: next.recurrenceRule } : {}),
     });
-    if (next.date !== undefined || next.time !== undefined) {
-      const start = d ? (t ? d.hour(t.hour()).minute(t.minute()) : d.hour(9).minute(0)) : null;
+    if (next.date !== undefined || next.time !== undefined || next.mode !== undefined) {
+      const start = d ? (m === "at" && t ? d.hour(t.hour()).minute(t.minute()) : d.hour(9).minute(0)) : null;
       moveReminders(start ? start.toDate() : null);
     }
   }
@@ -88,11 +92,11 @@ export function CarriedOverActions({ task }: { task: Block }) {
         onOpenChange={setOpen}
         content={
           <SchedulePopover
-            value={{ date, time, duration, recurrenceRule: task.recurrenceRule ?? null }}
+            value={{ date, time, duration, recurrenceRule: task.recurrenceRule ?? null, mode }}
             onChange={applySchedule}
             onClear={() => {
               update("block", task.id, {
-                ...schedulePatch(null, null, duration),
+                ...schedulePatch(mode, null, null, duration),
                 recurrenceRule: null,
               });
               moveReminders(null);

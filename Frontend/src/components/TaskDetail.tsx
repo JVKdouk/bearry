@@ -39,7 +39,7 @@ import { useIsOffline } from "@/store/network";
 import { useCollection, useRecord } from "@/store/hooks";
 import { LIFE_AREAS, PRIORITY_COLOR } from "@/lib/format";
 import { SchedulePopover, type ScheduleValue } from "@/components/SchedulePopover";
-import { schedulePatch } from "@/lib/schedule";
+import { schedulePatch, type ScheduleMode } from "@/lib/schedule";
 import { ReminderPicker } from "@/components/ReminderPicker";
 import { convertLoses, convertTo, nextQuarterHour } from "@/lib/convert";
 import {
@@ -94,6 +94,10 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
   const [date, setDate] = useState<Dayjs | null>(null);
   const [time, setTime] = useState<Dayjs | null>(null);
   const [duration, setDuration] = useState(30);
+  // "by" = a deadline the planner works before; "at" = a fixed appointment.
+  // Derived from the block on open (a start time means "at"), then the user can
+  // flip it explicitly in the schedule popover.
+  const [mode, setMode] = useState<ScheduleMode>("by");
   const [enriching, setEnriching] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [newStep, setNewStep] = useState("");
@@ -216,6 +220,8 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       setDate(timed ? dayjs(editing.startTime) : editing.deadline ? dayjs(editing.deadline) : null);
       setTime(timed ? dayjs(editing.startTime) : null);
       setDuration(editing.estimatedDuration ?? 30);
+      // A concrete start time is a fixed appointment; anything else is a deadline.
+      setMode(timed ? "at" : "by");
       return;
     }
     const base: Partial<Block> = {
@@ -253,6 +259,9 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
     // A time supplied by the caller (tapping a calendar slot) means an event is
     // the likelier intent, so start there rather than making them switch.
     setCreateKind(defaults?.startTime ? "event" : "task");
+    // Tapping a calendar slot supplies a start time → "at"; otherwise default to
+    // the flexible "Due by".
+    setMode(defaults?.startTime ? "at" : "by");
     setDate(d);
     setTime(t);
     setDuration(dur);
@@ -593,18 +602,20 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
     const d = next.date !== undefined ? next.date : date;
     const t = next.time !== undefined ? next.time : time;
     const dur = next.duration !== undefined ? next.duration : duration;
+    const m = next.mode !== undefined ? next.mode : mode;
 
     if (next.date !== undefined) setDate(d);
     if (next.time !== undefined) setTime(t);
     if (next.duration !== undefined) setDuration(dur);
+    if (next.mode !== undefined) setMode(m);
 
     patch({
-      ...schedulePatch(d, t, dur),
+      ...schedulePatch(m, d, t, dur),
       ...(next.recurrenceRule !== undefined ? { recurrenceRule: next.recurrenceRule } : {}),
     });
 
-    if (next.date !== undefined || next.time !== undefined) {
-      const start = d ? (t ? d.hour(t.hour()).minute(t.minute()) : d.hour(9).minute(0)) : null;
+    if (next.date !== undefined || next.time !== undefined || next.mode !== undefined) {
+      const start = d ? (m === "at" && t ? d.hour(t.hour()).minute(t.minute()) : d.hour(9).minute(0)) : null;
       const startDate = start ? start.toDate() : null;
       rescheduleAttachedReminders(startDate);
       // Default treatment: the first time a thing gains a moment, give it the
@@ -635,7 +646,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
       onOpenChange={setScheduleOpen}
       content={
         <SchedulePopover
-          value={{ date, time, duration, recurrenceRule: v.recurrenceRule ?? null }}
+          value={{ date, time, duration, recurrenceRule: v.recurrenceRule ?? null, mode }}
           onChange={applySchedule}
           onClear={() => {
             setDate(null);
@@ -644,7 +655,7 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
             // The auto-seeded default has nothing left to count back from.
             if (isCreate && !remindersTouched) setDraftReminders([]);
             // A repeat rule with nothing to repeat from is dead config.
-            patch({ ...schedulePatch(null, null, duration), recurrenceRule: null });
+            patch({ ...schedulePatch(mode, null, null, duration), recurrenceRule: null });
           }}
           onClose={() => setScheduleOpen(false)}
         />
@@ -652,7 +663,11 @@ export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: 
     >
       <button className="meta-pill" style={metaPillStyle(!!date)}>
         <CalendarOutlined />
-        {date ? `${date.format("MMM D")}${time ? ` · ${time.format("HH:mm")}` : ""}` : "Schedule"}
+        {date
+          ? mode === "at" && time
+            ? `${date.format("MMM D")} · ${time.format("HH:mm")}`
+            : `Do by ${date.format("MMM D")}`
+          : "Schedule"}
       </button>
     </Popover>
   );
