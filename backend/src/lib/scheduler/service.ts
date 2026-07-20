@@ -116,12 +116,19 @@ export async function planForUser(
   // treats them as busy at their own time. Without this a task with a defined
   // time was floated into a random slot this week merely because it wasn't done.
   const tz = profile.timezone || "UTC";
+  const nowMs = Date.now();
   const fixedTaskIds = new Set<string>();
   for (const t of candidates) {
     if (!isFixedInTime(t, tz)) continue;
-    fixedTaskIds.add(t.id);
     const interval = fixedInterval(t, tz);
-    if (interval && interval.start < horizonEnd && interval.end > horizonStart) {
+    // A pin whose moment has already passed didn't happen — an overdue timed
+    // task, or an appointment-shaped deadline now in the past. Leaving it fixed
+    // strands it there forever (excluded from scheduling, too old to be busy);
+    // instead let it fall through to the solver, which re-places it into the
+    // future. Only a still-upcoming pin is honoured as immovable.
+    if (!interval || interval.end.getTime() <= nowMs) continue;
+    fixedTaskIds.add(t.id);
+    if (interval.start < horizonEnd && interval.end > horizonStart) {
       busy.push(interval);
     }
   }

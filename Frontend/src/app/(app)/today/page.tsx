@@ -1,15 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Empty } from "antd";
+import { Button } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
 import { DateStrip } from "@/components/DateStrip";
 import { TaskCard } from "@/components/TaskCard";
+import { CarriedOverActions } from "@/components/CarriedOverActions";
 import { useCollection } from "@/store/hooks";
 import { useUI } from "@/store/ui";
 import { useAuth } from "@/store/auth";
-import { TEXT, WARM } from "@/lib/theme";
+import { TEXT, WARM_SOFT, SURFACE } from "@/lib/theme";
 import { currentOrNextIndex, hasEnded, partitionDay, whenOf } from "@/lib/today";
 import { useNow } from "@/lib/useNow";
 import type { Block } from "@/lib/types";
@@ -36,6 +37,51 @@ function Section({
         )}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{children}</div>
+    </div>
+  );
+}
+
+/**
+ * A clear day is a win, not a blank to fill. So this congratulates rather than
+ * prompting for a task, and stays a single compact row — icon left, a line of
+ * praise beside it — so an empty day is a quick "great, nothing here" you scroll
+ * past, not half a screen of emptiness telling you to get to work.
+ */
+function AllClear({ isToday, label }: { isToday: boolean; label: string }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 13,
+        padding: "13px 15px",
+        borderRadius: 14,
+        background: SURFACE.card,
+        border: `1px solid ${SURFACE.borderSoft}`,
+      }}
+    >
+      <div
+        style={{
+          flexShrink: 0,
+          width: 38,
+          height: 38,
+          borderRadius: "50%",
+          display: "grid",
+          placeItems: "center",
+          background: "rgba(255,143,94,0.14)",
+          fontSize: 19,
+        }}
+      >
+        🎉
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 14.5, color: TEXT.primary }}>
+          {isToday ? "You're all caught up" : "Nothing on this day"}
+        </div>
+        <div style={{ fontSize: 12.5, color: TEXT.tertiary, marginTop: 1 }}>
+          {isToday ? "Enjoy the breathing room — you've earned it." : `${label} is clear.`}
+        </div>
+      </div>
     </div>
   );
 }
@@ -152,30 +198,21 @@ export default function TodayPage() {
       </div>
 
       {overdue.length > 0 && (
-        <Section label="Overdue" count={overdue.length} tone={WARM}>
+        // Not "overdue" — nobody failed here, a date just passed. These carried
+        // over, and each one gets the two moves that give it a new time.
+        <Section label="Carried over" count={overdue.length} tone={WARM_SOFT}>
           {overdue.map((t) => (
-            <TaskCard key={t.id} todo={t} />
+            <div key={t.id}>
+              <TaskCard todo={t} />
+              <CarriedOverActions task={t} />
+            </div>
           ))}
         </Section>
       )}
 
       <Section label={isToday ? "Today" : selected.format("dddd, MMM D")} count={forDay.length}>
         {forDay.length === 0 ? (
-          <Empty
-            image={null}
-            description={
-              <span style={{ color: TEXT.tertiary }}>
-                Nothing scheduled{isToday ? " today" : ""} — enjoy the quiet.
-              </span>
-            }
-            style={{ margin: "22px 0" }}
-          >
-            <Button
-              onClick={() => openCreateTask({ deadline: selected.endOf("day").toISOString() })}
-            >
-              Add a task
-            </Button>
-          </Empty>
+          <AllClear isToday={isToday} label={selected.format("MMM D")} />
         ) : (
           forDay.map((t, i) => <TaskCard key={t.id} todo={t} featured={i === leadIndex} />)
         )}

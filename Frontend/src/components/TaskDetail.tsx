@@ -39,6 +39,7 @@ import { useIsOffline } from "@/store/network";
 import { useCollection, useRecord } from "@/store/hooks";
 import { LIFE_AREAS, PRIORITY_COLOR } from "@/lib/format";
 import { SchedulePopover, type ScheduleValue } from "@/components/SchedulePopover";
+import { schedulePatch } from "@/lib/schedule";
 import { ReminderPicker } from "@/components/ReminderPicker";
 import { convertLoses, convertTo, nextQuarterHour } from "@/lib/convert";
 import { fireAtFor, isOffsetUsable, rescheduleReminders } from "@/lib/reminders";
@@ -54,28 +55,6 @@ const PRIORITY_OPTS = [
   { label: "Med", value: "medium" as Priority },
   { label: "Low", value: "low" as Priority },
 ];
-
-function schedulePatch(date: Dayjs | null, time: Dayjs | null, duration: number) {
-  if (date && time) {
-    const start = date.hour(time.hour()).minute(time.minute()).second(0).millisecond(0);
-    const end = start.add(duration || 30, "minute");
-    return {
-      startTime: start.toISOString(),
-      endTime: end.toISOString(),
-      deadline: null,
-      estimatedDuration: duration || 30,
-    };
-  }
-  if (date) {
-    return {
-      deadline: date.endOf("day").toISOString(),
-      startTime: null,
-      endTime: null,
-      estimatedDuration: duration || 30,
-    };
-  }
-  return { deadline: null, startTime: null, endTime: null, estimatedDuration: duration || 30 };
-}
 
 export function TaskDetail({ overlay, isMobile }: { overlay: boolean; isMobile: boolean }) {
   const { message } = AntdApp.useApp();
