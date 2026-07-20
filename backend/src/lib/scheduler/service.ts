@@ -8,6 +8,7 @@
 import database from "@/core/database";
 import { solve } from "./solver";
 import { isFixedInTime, fixedInterval } from "./timedTask";
+import { vacatePatches } from "./vacate";
 import { ensureScheduleProfile, ensureEnergyWindows } from "./defaults";
 import { loadPersona } from "./persona";
 import type { SchedulerInput, SchedulableTask, ScheduleProposal } from "./types";
@@ -267,29 +268,60 @@ export async function applyPlan(
 ): Promise<string[]> {
   if (blocks.length === 0) return [];
 
+  const taskIds = [...new Set(blocks.map((b) => b.taskId))];
+
+  // A task that carried its OWN start/end (a timed task now in the past that the
+  // solver re-placed) would otherwise keep rendering at its old slot *next to*
+  // the planner block that replaces it — the same task drawn twice, the old copy
+  // still flagged "carried over". The planner block is now the single source of
+  // truth for where the task sits, so the source task's own time is vacated on
+  // apply. A deadline-only task has nothing to vacate and is untouched.
+  //
+  // The one thing that must survive is a recurring task's series anchor
+  // (`advanceRecurrence` walks from `startTime ?? deadline`): if such a task has
+  // no deadline to fall back on, its old start is pinned as the deadline so the
+  // next occurrence can still be computed. `whenOf` prefers the planner block
+  // over a bare deadline, so this never re-surfaces it as overdue.
+  const timedSources = await database.block.findMany({
+    where: { id: { in: taskIds }, userId, startTime: { not: null } },
+    select: { id: true, startTime: true, deadline: true, recurrenceRule: true },
+  });
+  const vacations = vacatePatches(timedSources);
+
   // One insert for the whole plan instead of a round-trip per block. Applying a
   // week could previously mean a hundred sequential inserts, and a failure
   // halfway left a partially-applied plan the user could not fully undo.
   // `createManyAndReturn` gives back the ids undo needs while letting Prisma
-  // generate them, so no second id format leaks into the table.
-  const created = await database.block.createManyAndReturn({
-    data: blocks.map((b) => ({
-      userId,
-      kind: "event" as const,
-      source: "local" as const,
-      title: b.titleCiphertext, // already encrypted by the endpoint
-      startTime: new Date(b.start),
-      endTime: new Date(b.end),
-      estimatedDuration: Math.max(
-        1,
-        Math.round((new Date(b.end).getTime() - new Date(b.start).getTime()) / 60_000),
-      ),
-      isFixed: false,
-      planForId: b.taskId,
-      scheduleReason: b.reason,
-    })),
-    select: { id: true },
+  // generate them, so no second id format leaks into the table. The vacate runs
+  // in the same transaction so the grid never briefly shows the duplicate.
+  const created = await database.$transaction(async (tx) => {
+    const rows = await tx.block.createManyAndReturn({
+      data: blocks.map((b) => ({
+        userId,
+        kind: "event" as const,
+        source: "local" as const,
+        title: b.titleCiphertext, // already encrypted by the endpoint
+        startTime: new Date(b.start),
+        endTime: new Date(b.end),
+        estimatedDuration: Math.max(
+          1,
+          Math.round((new Date(b.end).getTime() - new Date(b.start).getTime()) / 60_000),
+        ),
+        isFixed: false,
+        planForId: b.taskId,
+        scheduleReason: b.reason,
+      })),
+      select: { id: true },
+    });
+
+    for (const v of vacations) {
+      const { id, ...data } = v;
+      await tx.block.update({ where: { id }, data });
+    }
+
+    return rows;
   });
+
   return created.map((r: { id: string }) => r.id);
 }
 

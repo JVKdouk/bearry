@@ -1,0 +1,31 @@
+#!/usr/bin/env sh
+# Guard the scheduler — the app's most important system.
+#
+# The scheduler is deterministic and heavily tested; a change to it that a test
+# would have caught should never reach a commit. So: if this commit touches any
+# scheduler source or its tests, the scheduler suite has to pass before the
+# commit is allowed. Other changes are unaffected — the hook is a no-op unless
+# scheduler files are staged, so it stays out of the way for everything else.
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+
+echo "$staged" | grep -Eq \
+  '^backend/src/lib/scheduler/|^backend/src/controllers/Schedule/|^backend/tests/(solver|timed-task|chunking|tz|apply-plan|dependencies|persona)\.test\.ts$' \
+  || exit 0
+
+echo "▶ scheduler files changed — running the scheduler test suite…"
+cd backend || exit 1
+NODE_ENV=test yarn tsx --test \
+  tests/solver.test.ts \
+  tests/timed-task.test.ts \
+  tests/chunking.test.ts \
+  tests/tz.test.ts \
+  tests/apply-plan.test.ts \
+  tests/dependencies.test.ts \
+  tests/persona.test.ts
+status=$?
+if [ $status -ne 0 ]; then
+  echo "✖ scheduler tests failed — commit aborted. Fix them or run with --no-verify to override."
+  exit $status
+fi
+echo "✔ scheduler tests passed."

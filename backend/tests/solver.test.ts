@@ -244,3 +244,48 @@ test("overtime fills evenings only after working hours are full", () => {
   // And nothing before working hours actually starts before 09:00 or after 23:00.
   for (const b of withOt.blocks) assert.ok(b.start.getHours() >= 7 && b.end.getHours() <= 23);
 });
+
+test("an empty task list yields an empty, valid proposal", () => {
+  const out = solve(baseInput([]));
+  assert.deepEqual(out.blocks, []);
+  assert.deepEqual(out.unscheduled, []);
+});
+
+test("an overdue task (deadline before the horizon) is still placed into the future", () => {
+  // The reschedule-an-overdue-task path: a task whose deadline is already in the
+  // past must not be abandoned — the solver places it in the next open slot
+  // rather than refusing because "the deadline passed".
+  const out = solve(
+    baseInput([task("late", 60, { deadline: new Date(2026, 0, 1) })]), // long past
+  );
+  const placed = out.blocks.filter((b) => b.taskId === "late");
+  assert.equal(placed.length, 1, "an overdue task should still be scheduled");
+  assert.ok(placed[0].start.getTime() >= new Date(2026, 6, 20, 9, 0).getTime());
+});
+
+test("overtime is bounded — nothing is placed outside the overtime window", () => {
+  // A wall of splittable work with overtime on: pieces may spill past working
+  // hours, but never before 07:00 or after 23:00 local, on any day.
+  const from = new Date(2026, 6, 20, 9, 0);
+  const to = new Date(2026, 6, 22, 23, 0);
+  const out = solve(
+    baseInput([task("wall", 2000, { chunkable: true, minChunk: 30, maxChunk: 120 })], {
+      horizonStart: from,
+      horizonEnd: to,
+      workingHours: {
+        "1": [{ start: "09:00", end: "17:00" }],
+        "2": [{ start: "09:00", end: "17:00" }],
+      },
+      overtime: true,
+    }),
+  );
+  assert.ok(out.blocks.length > 0, "should place a lot of pieces");
+  for (const b of out.blocks) {
+    const startMin = b.start.getHours() * 60 + b.start.getMinutes();
+    const endMin = b.end.getHours() * 60 + b.end.getMinutes();
+    assert.ok(startMin >= 7 * 60, `piece starts ${b.start} before 07:00`);
+    // A piece ending exactly at 23:00 reads as endMin 0 (next day) only if it
+    // rolls midnight, which the window forbids; 23:00 is the hard ceiling.
+    assert.ok(endMin === 0 || endMin <= 23 * 60, `piece ends ${b.end} after 23:00`);
+  }
+});

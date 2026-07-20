@@ -58,7 +58,7 @@
   "scripts": {
     "dev": "nodemon --trace-deprecation core/index.ts",
     "start": "yarn tsx core/index.ts",
-    "prepare": "husky",
+    "prepare": "cd .. && git config core.hooksPath .husky || true",
     "lint": "tsc --noemit --project . && eslint --fix ./src",
     "test": "NODE_ENV=test tsx --test tests/*.test.ts",
     "build": "yarn tsx esbuild.config.ts",

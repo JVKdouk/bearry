@@ -760,6 +760,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         isMobile={isMobile}
         onCreated={(id) => router.push(`/lists?list=${id}`)}
       />
+
+      {/* Landscape lock. The manifest asks installed PWAs for portrait, but iOS
+          Safari and plain browser tabs ignore that, so a phone turned sideways
+          would render the whole layout into a 300px-tall strip. Rather than
+          fight it, we cover the screen and ask for portrait back. CSS-gated on a
+          short landscape viewport (see .rotate-lock) so it never shows on a
+          tablet or desktop. */}
+      <div className="rotate-lock" aria-hidden>
+        <div className="rotate-lock-icon">↻</div>
+        <div className="rotate-lock-text">Rotate to portrait</div>
+        <div className="rotate-lock-sub">Bearry is designed for one hand</div>
+      </div>
     </div>
   );
 }

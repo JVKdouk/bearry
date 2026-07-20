@@ -686,3 +686,57 @@ a {
   background: rgba(255, 77, 79, 0.14);
   color: #ff7875;
 }
+
+/* Landscape lock (see AppShell). Hidden by default; shown only when a phone is
+   turned sideways — a landscape orientation that is also short. The height gate
+   keeps it off tablets and laptops, which are landscape but tall, and off the
+   desktop entirely. */
+.rotate-lock {
+  display: none;
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  .rotate-lock {
+    position: fixed;
+    inset: 0;
+    z-index: 4000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 24px;
+    text-align: center;
+    background: #0b0b10;
+  }
+  .rotate-lock-icon {
+    font-size: 44px;
+    line-height: 1;
+    color: #a855f7;
+    animation: rotate-hint 2.4s ease-in-out infinite;
+  }
+  .rotate-lock-text {
+    font-size: 18px;
+    font-weight: 700;
+    color: #f4f4f6;
+  }
+  .rotate-lock-sub {
+    font-size: 13px;
+    color: #8f8fa2;
+  }
+}
+@keyframes rotate-hint {
+  0%,
+  70%,
+  100% {
+    transform: rotate(0deg);
+  }
+  20%,
+  50% {
+    transform: rotate(-90deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rotate-lock-icon {
+    animation: none;
+  }
+}

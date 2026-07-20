@@ -6,12 +6,12 @@ import {
   App as AntdApp,
   Button,
   Drawer,
+  Dropdown,
   Empty,
   Grid,
   Popover,
   Segmented,
   Spin,
-  Switch,
   Tag,
   Tooltip,
 } from "antd";
@@ -76,6 +76,9 @@ const SNAP = 15;
  * narrating. Keeps AI off the hot path for the common small plan.
  */
 const DIAGNOSE_MIN_TASKS = 6;
+// Remembers the last view (day/3day/week/month) across visits. The anchor is
+// never persisted — the calendar always opens on today.
+const CAL_VIEW_KEY = "bearry.calView";
 
 /**
  * How many lines of title a block of this height can show.
@@ -185,10 +188,31 @@ function CalendarInner() {
   // estimates need the server.
   const offline = useIsOffline();
 
+  // Anchor always opens on today — the calendar's default page is "now", not
+  // wherever you last scrolled to. The *view* is different: which zoom level you
+  // prefer is a lasting choice, so it's remembered across visits (see below).
   const [anchor, setAnchor] = useState<Dayjs>(dayjs());
-  const [view, setView] = useState<View>(() =>
-    typeof window !== "undefined" && window.innerWidth < 768 ? "3day" : "week",
-  );
+  const [view, setView] = useState<View>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(CAL_VIEW_KEY);
+      if (saved === "day" || saved === "3day" || saved === "week" || saved === "month") {
+        return saved;
+      }
+      return window.innerWidth < 768 ? "3day" : "week";
+    }
+    return "week";
+  });
+  // Persist the chosen view so the next visit reopens at the same zoom. The
+  // anchor is deliberately not persisted — see above.
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(CAL_VIEW_KEY, view);
+      } catch {
+        /* ignore quota */
+      }
+    }
+  }, [view]);
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
   dragRef.current = drag;
@@ -1079,35 +1103,40 @@ function CalendarInner() {
               </Button>
             </>
           ) : (
-            <Popover
-              trigger="click"
+            // On a phone the controls fold into a ⋮ menu — a vertical list, the
+            // same shape as the list-page overflow menu, rather than a squeezed
+            // horizontal switch bar that crams four labels into a thumb-width.
+            <Dropdown
+              trigger={["click"]}
               placement="bottomRight"
-              content={
-                <div style={{ display: "flex", flexDirection: "column", gap: 14, width: 210 }}>
-                  <div>
-                    <div className="section-label" style={{ marginBottom: 6 }}>
-                      View
-                    </div>
-                    <Segmented
-                      block
-                      value={view}
-                      onChange={(v) => setView(v as View)}
-                      options={viewOptions}
-                    />
-                  </div>
-                  <div
-                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}
-                  >
-                    <span style={{ fontSize: 13, color: TEXT.secondary }}>Block regions</span>
-                    <Switch size="small" checked={showRegions} onChange={setShowRegions} />
-                  </div>
-                </div>
-              }
+              menu={{
+                selectable: true,
+                selectedKeys: [`view:${view}`],
+                items: [
+                  { key: "view-h", type: "group" as const, label: "View" },
+                  ...viewOptions.map((o) => ({
+                    key: `view:${o.value}`,
+                    label: o.label,
+                    onClick: () => setView(o.value as View),
+                  })),
+                  { type: "divider" as const },
+                  {
+                    key: "regions",
+                    icon: (
+                      <CheckOutlined
+                        style={{ fontSize: 12, opacity: showRegions ? 1 : 0 }}
+                      />
+                    ),
+                    label: "Block regions",
+                    onClick: () => setShowRegions(!showRegions),
+                  },
+                ],
+              }}
             >
               <button className="cal-arrow" aria-label="View options">
                 <MoreOutlined />
               </button>
-            </Popover>
+            </Dropdown>
           )}
 
           {/* The solver runs server-side against your full workload, so planning
@@ -1517,12 +1546,16 @@ function CalendarInner() {
                           position: "absolute",
                           top,
                           height,
-                          left: `calc(${lane.col * laneW}% + 4px)`,
-                          width: `calc(${laneW}% - 6px)`,
+                          // Hug the column edges — a slim 2px inset left, ~1px
+                          // right — so a block claims almost the whole slot
+                          // width rather than floating in a wide margin. The
+                          // internal padding shrinks to match.
+                          left: `calc(${lane.col * laneW}% + 2px)`,
+                          width: `calc(${laneW}% - 3px)`,
                           background: b.color + "26",
                           borderLeft: `3px solid ${b.color}`,
                           borderRadius: 8,
-                          padding: tinyBlocks ? "1px 4px" : "3px 8px",
+                          padding: tinyBlocks ? "1px 4px" : "3px 6px",
                           overflow: "hidden",
                           // Always a column, title first.
                           //

@@ -248,8 +248,8 @@ function ListLayout({ todos }: { todos: Block[] }) {
   }
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {open.map((t, i) => (
-        <TaskCard key={t.id} todo={t} featured={i === 0} />
+      {open.map((t) => (
+        <TaskCard key={t.id} todo={t} featured={false} />
       ))}
     </div>
   );
