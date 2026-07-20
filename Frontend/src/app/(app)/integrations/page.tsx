@@ -35,6 +35,7 @@ const BRAND: Record<string, string> = {
   gcal: "#4285f4",
   todoist: "#e44332",
   ticktick: "#4772fa",
+  "microsoft-todo": "#2564cf",
   notion: "#c9c9d6",
   outlook: "#0f6cbd",
   slack: "#611f69",

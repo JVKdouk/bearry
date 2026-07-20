@@ -35,6 +35,10 @@ function hashBlock(block: CanonicalBlock): string {
  * longer has more than one answer.
  */
 function toEntityData(block: CanonicalBlock, providerId: string): Record<string, unknown> {
+  // Microsoft To Do imports fall through to `local` for now: the BlockSource
+  // enum has no `microsoft` value yet, and adding one is blocked on cleaning up
+  // a broken historical migration. Dedup keys on providerId + accountKey +
+  // sourceId, not source, so re-imports still match correctly.
   const source = providerId === "google-calendar" || providerId === "google-tasks"
     ? "google"
     : providerId === "ticktick"

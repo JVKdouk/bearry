@@ -8,6 +8,7 @@ import { register } from "../registry";
 import { googleCalendarProvider } from "./googleCalendar";
 import { icsCalendarProvider } from "./icsCalendar";
 import { googleTasksProvider } from "./googleTasks";
+import { microsoftTodoProvider } from "./microsoftTodo";
 import { tickTickProvider } from "./ticktick";
 import { comingSoonProviders } from "./comingSoon";
 
@@ -18,6 +19,7 @@ export function registerAllProviders(): void {
   register(googleCalendarProvider);
   register(icsCalendarProvider);
   register(googleTasksProvider);
+  register(microsoftTodoProvider);
   register(tickTickProvider);
   for (const p of comingSoonProviders) register(p);
   done = true;
