@@ -61,10 +61,11 @@ export function authUrlFor(providerId: string, scope: string, state: string): st
     redirect_uri: redirectUriFor(providerId),
     response_type: "code",
     response_mode: "query",
-    // Force the consent screen so a re-authorisation still returns a refresh
-    // token rather than silently reusing a prior grant. `select_account` also
-    // shows the account chooser so a second Microsoft account can be added.
-    prompt: "select_account consent",
+    // Microsoft accepts only ONE prompt value (login|none|consent|select_account)
+    // — a space-separated pair like Google's is AADSTS90023. `select_account`
+    // shows the chooser so a second account can be added; the refresh token still
+    // comes back because it's tied to the `offline_access` scope, not to prompt.
+    prompt: "select_account",
     scope,
     state,
   });
