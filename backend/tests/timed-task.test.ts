@@ -41,6 +41,15 @@ test("midnight is also treated as date-only", () => {
   assert.equal(deadlineIsAppointment(midnightLocal, SP), false);
 });
 
+test("a date-only deadline is recognised even when the profile timezone is wrong", () => {
+  // 23:59 São Paulo = 02:59 UTC. With the profile left at the "UTC" default the
+  // hour reads as a real time; the endOf('day') :59.999 fingerprint must still
+  // classify it as a due-by date so the scheduler floats it, not pins it.
+  const brazilEndOfDay = new Date("2026-07-25T02:59:59.999Z");
+  assert.equal(deadlineIsAppointment(brazilEndOfDay, "UTC"), false);
+  assert.equal(isFixedInTime({ deadline: brazilEndOfDay }, "UTC"), false);
+});
+
 test("a real time of day is an appointment", () => {
   const fivePmLocal = new Date("2026-07-24T20:00:00.000Z"); // 17:00 in SP
   assert.equal(deadlineIsAppointment(fivePmLocal, SP), true);

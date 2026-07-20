@@ -56,6 +56,19 @@ export function deadlineIsAppointment(
   timezone: string,
 ): boolean {
   if (!deadline) return false;
+
+  // A date-only deadline is written as endOf('day') — HH:59:59.999 in the user's
+  // local zone. Zone offsets are whole minutes, so the :59.999 seconds and
+  // milliseconds survive into every timezone unchanged: they're a timezone-proof
+  // fingerprint of "due by this day", not "at this time". This is what saves us
+  // when the profile's timezone is wrong — e.g. left at the "UTC" default while
+  // the user is in Brazil, where a 23:59-local deadline lands at 02:59 UTC and
+  // the hour alone would read as a real appointment, silently pinning a task
+  // that should have floated across the week.
+  if (deadline.getUTCSeconds() === 59 && deadline.getUTCMilliseconds() === 999) {
+    return false;
+  }
+
   const { hour, minute } = localHourMinute(deadline, timezone);
   const endOfDay = hour === 23 && minute === 59;
   const startOfDay = hour === 0 && minute === 0;
